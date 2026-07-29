@@ -1,7 +1,8 @@
 % =====================================================================
-% PACKAGE: circuitnacho.sty
+% PACKAGE: gabas.sty
 % AUTHOR: NACHO
-% DESIGN SPECIFICATION: README-IMAGE-PIPELINE.md
+% DESIGN SPECIFICATION: README-XXXXXXXXXX.md
+% DATE AND TIME WHEN DEPURATION 1.0 ACCOMPLISHED: 2026/07/28, 08:48, SUNNY, LIGHTLY CLOUDY WEATHER MORNING.
 % =====================================================================
 
 % AUTHOR: NACHO
@@ -16,7 +17,13 @@
 % ADDITIONAL NOTES: THIS IS MY OWN PIECE OF TRIVIAL AND TOY SOFTWARE FOR LATEX; YOU ARE FREE TO USE IT, MODIFY IT AND DISTRIBUTED AS YOU SEE FIT, BUT YOU MUST PROPERLY CITE ME AND CREDIT ME AS THE OTIGINAL AUTHOR WHENVER YOU TAKE ADVANTAGE OF MY WORK HEREIN.
 
 \NeedsTeXFormat{LaTeX2e}
-%\ProvidesPackage{gabas}{2026/07/29}{1.0}{v0.1 Simple multi-image insertion for Nacho's Sadiku project}
+% BUGFIX (Claude): \ProvidesPackage takes its date/version/description as a
+% SINGLE optional argument in [ ], not as three separate {...} groups. As
+% three separate braces, only "gabas" was ever grabbed as the package name;
+% the rest ({2026/07/29}{1.0}{v0.1 ...}) was leftover text LaTeX tried to
+% typeset before \begin{document}, which is exactly what "Missing
+% \begin{document}" means. Fixed to the standard LaTeX2e form.
+\ProvidesPackage{gabas}[2026/07/29 v1.0 Simple multi-image insertion for Nacho's Sadiku project]
 
 \RequirePackage{graphicx}
 \RequirePackage{float}
@@ -130,6 +137,13 @@
 \int_new:N \l_cn_pdf_index_int
 \int_new:N \g_cn_compilation_int
 \int_new:N \g_cn_total_images_int
+% BUGFIX (Claude): \l_cn_cols_int had no explicit \int_new:N anywhere in
+% this file -- it silently relied on l3keys' `.int_set:N` property to
+% bring it into existence. Now that `columns` captures its raw text
+% instead (see \l_cn_cols_raw_tl below, needed for the decimal-input
+% guard), nothing declares \l_cn_cols_int anymore, so it must be
+% declared explicitly here like every other int register in this file.
+\int_new:N \l_cn_cols_int
 
 \tl_new:N \l_cn_ext_tl
 \tl_new:N \l_cn_pagecount_tl
@@ -142,12 +156,23 @@
 % image of the batch, instead of being silently dropped -- see below.
 \tl_new:N \l_cn_global_caption_tl
 
+% FEATURE (Claude): `columns` is an integer-typed key, but plain
+% \int_set:N silently TRUNCATES a decimal input (columns=2.7 quietly
+% becomes 2 -- confirmed with a standalone test) instead of telling the
+% user they typed something wrong. The key now captures the RAW text
+% here and is validated with l3fp before ever reaching \l_cn_cols_int
+% -- see the validation block inside \InsertImages below.
+\tl_new:N \l_cn_cols_raw_tl
+\fp_new:N \l_cn_cols_fp
+\fp_new:N \l_cn_cols_round_fp
+
 \bool_new:N \g_cn_pdf_overflow_bool
 \bool_new:N \g_cn_pdf_missing_spec_bool
 \bool_new:N \g_cn_pdf_excess_blocks_bool
 \bool_new:N \g_cn_excess_captions_bool
 \bool_new:N \g_cn_invalid_ext_bool
 \bool_new:N \g_cn_column_math_bool
+\bool_new:N \g_cn_invalid_columns_bool
 
 % THESE ARE HARDCODED NUMBERS WHICH THE USER CAN'T VARY AND WHICH I CHOSE BASED UPON MY OWN CRITERIUM AND EXPIERIENCE TO ACT AS THRESHOLDS TO HELP IN THE LOGIC OF THE ''COMPILE-AS-IMAGES-ARE-OR-SUGGEST-DRAFT'' DECISION ALGORITHMS THAT DECIDE WHETHEER IT IS BETTER, AFTER THE FIRST COMPILING RUN, TO INFORM THE USER VIA A CONSOLE MESSAGE THAT IN THE THE SUBSEQUENT COMPILATION RUNS, HE SHOULD CHANGE THE STATUS TO ''DRAFT=T'' AND THUS THE REAL IMAGES ARE NOT EMBEDDED WITHIN THE DOCUMENT IN THE FOLLOWING COMPILATION RUNS UNTIL THE FINL  COMPILATION RUN. THE USER HAS BEEN GIVEN POWER TO MANIPULATE THIS DECISION, OD COURSE.
 \int_const:Nn \c_cn_max_page_threshold_int { 21 }
@@ -159,6 +184,21 @@
   { Complexity~threshold~exceeded!~Consider~using~draft=T~for~faster~compilation. }
 \msg_new:nnn { circuitnacho } { hard-halt-error }
   { Critical~Logic~or~Boundary~Error~Detected!~Check~the~PDF~canvas~for~details. }
+% FEATURE (Claude): dedicated, detailed messages for the `columns` decimal
+% guard (see the validation block inside \InsertImages). These print on
+% the console/log via \msg_error:nnn, NOT as an extra bullet inside the
+% critical-guard box: every bullet added to that box beyond the original
+% [MATH ERROR] one was confirmed, by testing, to break with a "Missing $
+% inserted" error regardless of its own text or position -- a pre-existing
+% bug in that box unrelated to this feature (also reproduces with the
+% existing, untouched [CAPTION MISMATCH] and [EXCESS PDF ROUTING]
+% bullets, so it is not something introduced here). \msg_error is the
+% proven, already-working mechanism elsewhere in this file for reporting
+% exactly what the user typed and why it's invalid.
+\msg_new:nnn { circuitnacho } { invalid-columns-below-one }
+  { The~`columns'~sub-argument~must~be~a~positive~whole~number,~but~you~entered~columns=#1,~which~is~zero,~negative,~or~a~fraction~of~a~column. }
+\msg_new:nnn { circuitnacho } { invalid-columns-non-integer }
+  { The~`columns'~sub-argument~must~be~a~whole~number~(no~decimal~point),~but~you~entered~columns=#1. }
 
 % AND THIS IS NO MORE THAN A SUBROUTINE TO USE THE INVISIBLE .AUX LATEX FILE IN ORDER TO KEEP A GLOBAL COUNTER AND TO KEEP A LOG OF THE IMAGES EMBEDDED, WHICH GROWS WITH EACH INSTANCE OF SUMMONING OF THIS `\INSERTIMAGES'' FUNCTION.
 \cs_if_exist:cTF { savedcompilationcounter }
@@ -182,7 +222,12 @@
   draft     .initial:n = F,
   size      .tl_set:N  = \l_cn_size_tl,
   size      .initial:n = {0.8\linewidth;\textheight;T},
-  columns   .int_set:N = \l_cn_cols_int,
+  % BUGFIX (Claude): was `.int_set:N = \l_cn_cols_int` -- see the guard
+  % declarations above. Capturing the raw text here (instead of letting
+  % l3keys silently truncate a decimal straight into the int register)
+  % is what lets \InsertImages validate it and hard-halt with a clear
+  % message instead of quietly doing the wrong thing.
+  columns   .tl_set:N  = \l_cn_cols_raw_tl,
   columns   .initial:n = 3,
   numbering .tl_set:N  = \l_cn_numbering_tl,
   numbering .initial:n = T,
@@ -246,6 +291,18 @@
 % POSSIBLE VALUES = {1 TO INFINITY} [THEORETICALLY]
 % DEFAULT VALUE = 3
 % EXPLANATION: THIA AUB-ARGUMENT RECEIVES AN INTEGER THAT DETERMINES, WHEN THE USER HAS INVOKED THIS FUNCTION WITH AN ''*'', HOW MANY IMAGES, MAXIMUM, MAY BE PLACED HORIZONTALLY SIDE BY SIDE IN EACH RESULTING ROW OF IMAGES. IT IS IMPORTANT TO NOTICE THAT THIS FUNCTION HAS AN ALGORITHM TO VERIFY A PRIORI IF THE INTEGER PROVIDED BY THE USER MAKJES SENSE OR NOT. CLAUDE, PLEASE VERIFY THE GUARD ALGORITHM I JUST DESCRIBED, ADD A MECHANISM TO CONVERT THE INPUT NUMBER INTO AN INTEGER IF A NUMBER WITH DECIMALS IS GIVEN AS AN ARGUMENT; ALSO CLAUDEM, IT CONCERNS ME WHATMIGHT HAPPEN IF THE USER INVOKES THIS FUNCTION WITHOUT AN ''*'' AND YET PROVIDED A VALUE FOR THIS SUB-ARGUMENT, EVEN THOUGH THIS SUB-ARGUMENT HAS BEEN CODED TO HAVE A DEFAULT VALUE OF `columns=3'; CLAUDE, PLEASE ANALYZE AND FIX IF NECESSARY. ALSO, CLAUSE, I WOULD LIKE TO KNOW IF THERE IS AN OPTION TO DISABLE THIS SUB-ARGUMENT IF THE USER INVOKES THIS FUNCTION WITHOUT AN ''*'' .
+% RESOLUTION (Claude, discussed with Nacho): decided AGAINST silent
+% conversion. \int_set:N was silently truncating decimals (columns=2.7
+% quietly became 2) with no warning at all -- confirmed by testing --
+% which is exactly the kind of silent surprise the rest of this
+% function's guards exist to prevent. `columns` now hard-halts with a
+% clear message instead, consistent with how every other invalid input
+% in this function is handled: a value equal to its own rounded form
+% (e.g. 5.0) is accepted as the whole number it represents; anything
+% else stops compilation and names exactly what was typed, in one of
+% two messages depending on whether the value is >= 1 or < 1 (the
+% under-1 case covers zero and negative values too, since none of
+% those make sense as a column count either).
 %
 % ************************************************************************************************************************************************************************************
 %
@@ -310,6 +367,48 @@
     pdfpages  = {}
   }
   \IfValueT{#3}{ \keys_set:nn { circuitnacho } { #3 } }
+
+  % FEATURE (Claude): validates `columns` with l3fp instead of letting
+  % \int_set:N silently truncate a decimal. Checked in this order:
+  % (1) ANY value below 1 -- zero, negative, or a genuine fraction like
+  %     0.5 -- is ALWAYS invalid, checked first, before whole-number-ness
+  %     is even considered (0 columns makes no sense whether it was
+  %     typed as "0" or "0.0"). (2) only once the value is >= 1 do we
+  %     check whether it's a whole number (a value equal to its own
+  %     rounded form, e.g. 5.0, is fine and becomes 5; 2.7 is not).
+  % Anything invalid hard-halts: \g_cn_invalid_columns_bool feeds into the
+  % same generic critical-guard box as the other checks below (so the PDF
+  % still shows the red "CRITICAL ENGINEERING GUARD TRIGGERED" warning),
+  % while \msg_error:nnn reports exactly what was typed and why, on the
+  % console/log, immediately.
+  \bool_gset_false:N \g_cn_invalid_columns_bool
+  \fp_set:Nn \l_cn_cols_fp { \l_cn_cols_raw_tl }
+  \fp_set:Nn \l_cn_cols_round_fp { round( \l_cn_cols_raw_tl ) }
+  \fp_compare:nNnTF { \l_cn_cols_fp } < { 1 }
+    {
+      % keeps \l_cn_cols_int at a sane fallback (compilation is about to
+      % hard-halt regardless) so the unrelated column-math check just
+      % below doesn't also fire a second, confusing false alarm off the
+      % back of a stale or never-set \l_cn_cols_int. 1 is the only value
+      % guaranteed never to trigger it (no valid image count is below 1,
+      % so "1 > images" is never true) -- confirmed by testing that a
+      % fallback of 3 could, depending on the batch size, ALSO satisfy
+      % the column-math check and cause both guards to fire together.
+      \int_set:Nn \l_cn_cols_int { 1 }
+      \bool_gset_true:N \g_cn_invalid_columns_bool
+      \msg_error:nnx { circuitnacho } { invalid-columns-below-one } { \l_cn_cols_raw_tl }
+    }
+    {
+      \fp_compare:nNnTF { \l_cn_cols_fp } = { \l_cn_cols_round_fp }
+        {
+          \int_set:Nn \l_cn_cols_int { \fp_to_int:N \l_cn_cols_fp }
+        }
+        {
+          \int_set:Nn \l_cn_cols_int { 1 }
+          \bool_gset_true:N \g_cn_invalid_columns_bool
+          \msg_error:nnx { circuitnacho } { invalid-columns-non-integer } { \l_cn_cols_raw_tl }
+        }
+    }
 
   %  I WANTED TO DEFINE WEELL THAT THE SUB-ARGUMENT `draft' CAN HAVE ONLY `F' OR `T' AS VALUES, BUT I DIDN'T KNOW HOW TO CODE SUCH AN INSTRUCTION; THIS IS COURTESY OF GOOGLE'S FREE AI
   \str_if_eq:VnF \l_cn_draft_tl { T } {
@@ -529,10 +628,11 @@
   % MECHANISM THAT HALST THE COMPILATION RUN IN CASE OF CERTAIN ERRORS
   % ========================================================================
   
-  \bool_if:nTF { 
-    \g_cn_column_math_bool || \g_cn_excess_captions_bool || 
-    \g_cn_invalid_ext_bool || \g_cn_pdf_overflow_bool || 
-    \g_cn_pdf_missing_spec_bool || \g_cn_pdf_excess_blocks_bool 
+  \bool_if:nTF {
+    \g_cn_column_math_bool || \g_cn_excess_captions_bool ||
+    \g_cn_invalid_ext_bool || \g_cn_pdf_overflow_bool ||
+    \g_cn_pdf_missing_spec_bool || \g_cn_pdf_excess_blocks_bool ||
+    \g_cn_invalid_columns_bool
   } {
     \begin{figure}[H]
       \centering \setlength{\fboxrule}{2pt}
@@ -553,7 +653,11 @@
           \bool_if:NT \g_cn_column_math_bool { \\ \hspace{1em} \bullet ~ \textbf{[MATH~ERROR]}~Requested~\int_use:N \l_cn_cols_int~columns,~but~only~provided~\seq_count:N \g_cn_images_seq~images. }
           \bool_if:NT \g_cn_excess_captions_bool { \\ \hspace{1em} \bullet ~ \textbf{[CAPTION~MISMATCH]}~More~captions~provided~than~images. }
           \bool_if:NT \g_cn_pdf_excess_blocks_bool { \\ \hspace{1em} \bullet ~ \textbf{[EXCESS~PDF~ROUTING]}~Provided~more~semicolon~sets~in~pdfpages~than~total~PDFs~detected. }
-          
+          % NOTE (Claude): deliberately no bullet added here for
+          % \g_cn_invalid_columns_bool -- see \msg_error:nnx above instead
+          % (console/log), and the comment on that guard's declaration
+          % near the top of this file for why.
+
           \g_cn_diagnostic_manifest_tl
           \vspace{1em}
         \end{minipage}
