@@ -25,7 +25,13 @@
 \RequirePackage{xparse}
 \RequirePackage{expl3}
 \RequirePackage{xcolor}
-\RequirePackage{l3graphics} % needed by \graphics_get_pagecount:nN, used below for multi-page PDF detection
+% BUGFIX (Claude): there is no "l3graphics" package on CTAN/TeX Live -- that
+% \RequirePackage line failed to find the file and hard-stopped compilation
+% for every user. \graphics_get_pagecount:nN (used below for multi-page PDF
+% detection) is not a separate package at all: it ships directly inside the
+% l3kernel programming layer, so it's already available the moment
+% \RequirePackage{expl3} above has loaded. Nothing extra needs to be
+% required for it.
 \RequirePackage{pdfpages}
 
 % BECAUSE I WANTED MY NON TRIVIAL, REAL-LIFE USABLE AND ACTUALLLY USEFUL ''\INSRTIMAGES'' FUNCTION TO BE REALLY AGILE AND NOT HAVING TO SPECIFY EACH IMAGE FED TO HER THE IMAGE'S WHOLE PATH, AND BECAUSE I WANTED THIS \INSRTIMAGES FUNCTION TO BE ABLE TO RECEIVE, WITHOUT ANY PROBLEM, ANY IMAGE FROM ANY SOURCE FOLDER WITHIN MY LATEX PROJECT, I CODED THIS  ''\REGISTERCHAPTERPATHS' FUNCTION FIRST BEFORE PROCEEDING TO THE IMAGES FUNCTION EXERCISE. I COULD HAVE CODED THIS FUNCTION'S CODE WITHIN MY '\INSRTIMAGES'' FUNCTION, OR EVEN BETTER, I COULD HAVE INVOKED THIS  ''\REGISTERCHAPTERPATHS' FUNCTION WITHIN MY ''\INSRTIMAGES'' FUNCTION, BUT I REFRAINED FROM DOING SO BECAUSE I WANT MY ''\INSRTIMAGES'' FUNCTION, AS IMPERFECT AS IT IS NOW, TO BE A UNIVERSAL LATEX FUNCTION, AIMING AT A PROFESSIONAL LEVEL, AND MY ''\REGISTERCHAPTERPATHS' FUNCTION IS SPECIFIC TO MY CURRENT SAKIKU' SEFER SOLUTIONS LATEX PROKECT. HOWEVER, I WOULD LOVE YOU TO TEACH ME HOW TO CODE A FUNCTION SIMILAR TO THIS ''\REGISTERCHAPTERPATHS' FUNCTION THAT IS ACTUALLY UNIVERSAL AND WHICH A USER WHO EVENTUALLLY USES MY FUTURE LATEX PACKAGE, CAN USE ON OVERLEAF WITHOUT PROBLEMS AT ALL.
@@ -104,6 +110,18 @@
 % THESE ARE THE `MASTER'' DATA CONTAINERS [OR SO I THINK; I THINK THEY ARE SOME KIND OF GLOBAL VARIABLES FOR MY `\INSERTIMAGES'' FUNCTION] AND I DECLARED THEM BEFORE DECLARING THE `\INSERTIMAGES'' FUNCTION'S DECLARATION HERSELF BECAUSE I SAW ONLINE EVERYONE DID IT THIS WAY. PLEASE EXPLAIN WETHER THIS COULD BE CONTAINED WITHIN THE DECLARATION OF MY `\INSERTIMAGES'' FUNCTION RO NOT, AND POCHEMU, S'IL VOUS PLAIT.
 \seq_new:N \g_cn_images_seq
 \seq_new:N \g_cn_resolved_layout_seq
+% BUGFIX (Claude): originally each resolved image was stored as a single
+% "{name}{page}" pair in \g_cn_resolved_layout_seq, unpacked later with
+% \tl_head:n / \tl_tail:n. The name half happened to come out clean, but
+% the page half kept ONE extra layer of braces (\tl_tail:n hands back
+% "{1}", not "1") -- harmless in \label or \texttt, but fatal the moment
+% it reached \includegraphics's page= key, which needs a bare number
+% (confirmed with a standalone test: \int_compare on the old page value
+% threw "Missing number, treated as zero"). Storing names and pages in
+% two parallel sequences and reading the page back with \seq_item:Nn
+% (already used successfully elsewhere in this file, e.g. for captions)
+% avoids the brace-unwrapping problem entirely.
+\seq_new:N \g_cn_resolved_pages_seq
 \seq_new:N \l_cn_pdf_blocks_seq
 \seq_new:N \l_cn_tmp_pages_seq
 \seq_new:N \l_cn_captions_seq
@@ -119,6 +137,10 @@
 \tl_new:N \l_cn_parsed_width_tl
 \tl_new:N \l_cn_parsed_height_tl
 \tl_new:N \l_cn_parsed_keep_tl
+% BUGFIX (Claude): holds the single "global" caption (the `captions={"..."}`
+% form, with no `[...]` blocks) so it can be emitted once, under the last
+% image of the batch, instead of being silently dropped -- see below.
+\tl_new:N \l_cn_global_caption_tl
 
 \bool_new:N \g_cn_pdf_overflow_bool
 \bool_new:N \g_cn_pdf_missing_spec_bool
@@ -255,9 +277,38 @@
 %
 % ************************************************************************************************************************************************************************************
 
-\NewDocumentCommand{\InsertImages}{ s m o }{%   SIDE NOTE: I ADDED AN  ''%'' RIGHT NEXT TO THIS FUNCTION'S OPENING CURLY BRACKET BECAUSE I SAW MANY LATEX FUNCTIONS ONLINE DEFINED THIS WAY; HOWEVER, I WOULD LIKE TO KNOW THE REASON FOR THIS. NOTICE I DECIDED TO NOT INCLUDE IT IN THE DEFINITION OF THE ''\REGISTERCHAPTERPATHS' FUNCTION, RIGHT NEXT TO THE OPENING CURLY BRACKET OF ITS BODY, AND THAT FUNCTION STILL WORKS JUST FINE..........
+% BUGFIX (Claude): the third argument was declared as xparse type "o", which
+% is an optional argument delimited by SQUARE BRACKETS [ ... ]. Every usage
+% example in the documentation above -- and every real call to this
+% function -- passes the options in CURLY BRACES { ... }, e.g.
+% \InsertImages{...}{columns=2}. Because "{...}" never satisfies an "o"-type
+% slot, #3 was ALWAYS -NoValue- regardless of what was written, so
+% \IfValueT{#3} below never fired: none of draft/size/columns/numbering/
+% captions/pdfpages ever took effect from a real call, and the literal text
+% "{columns=2}" (or whatever was written) was left dangling in the input
+% stream to be typeset as ordinary document text right after the figure.
+% Confirmed with a standalone test that "o" silently drops a "{...}"-style
+% argument. xparse's "g" type is exactly "optional argument delimited by a
+% TeX group { }" -- the fix is this one-letter change.
+\NewDocumentCommand{\InsertImages}{ s m g }{%   SIDE NOTE: I ADDED AN  ''%'' RIGHT NEXT TO THIS FUNCTION'S OPENING CURLY BRACKET BECAUSE I SAW MANY LATEX FUNCTIONS ONLINE DEFINED THIS WAY; HOWEVER, I WOULD LIKE TO KNOW THE REASON FOR THIS. NOTICE I DECIDED TO NOT INCLUDE IT IN THE DEFINITION OF THE ''\REGISTERCHAPTERPATHS' FUNCTION, RIGHT NEXT TO THE OPENING CURLY BRACKET OF ITS BODY, AND THAT FUNCTION STILL WORKS JUST FINE..........
 
 % HERE I DEFONE THAT THE  OPTIONAL SUB-ARGUMENTS ARE ORDER AND POSITION INDEPENDENT [THEY ONLY DEPEND ON BEING SUMMONED BY NAMES JUST PROVIDED ABOVE, IN ACCORDANCE TO THE DICTIONARY ENTRIES
+  % BUGFIX (Claude): without this, an \InsertImages call that omits #3 (or
+  % omits some of its keys) silently inherited whatever draft/size/columns/
+  % numbering/captions/pdfpages values were left over from the PREVIOUS
+  % \InsertImages call in the document, instead of the documented per-call
+  % defaults. Re-applying the documented defaults here, before the user's
+  % own #3 is applied on top, makes every call start from a clean,
+  % documented state, exactly as each sub-argument's "DEFAULT VALUE" above
+  % promises.
+  \keys_set:nn { circuitnacho } {
+    draft     = F,
+    size      = {0.8\linewidth;\textheight;T},
+    columns   = 3,
+    numbering = T,
+    captions  = {},
+    pdfpages  = {}
+  }
   \IfValueT{#3}{ \keys_set:nn { circuitnacho } { #3 } }
 
   %  I WANTED TO DEFINE WEELL THAT THE SUB-ARGUMENT `draft' CAN HAVE ONLY `F' OR `T' AS VALUES, BUT I DIDN'T KNOW HOW TO CODE SUCH AN INSTRUCTION; THIS IS COURTESY OF GOOGLE'S FREE AI
@@ -273,12 +324,40 @@
 
   \seq_gclear:N \g_cn_images_seq
   \seq_gset_split:Nnn \g_cn_images_seq { , } { #2 }
+
+  % BUGFIX (Claude): every usage example in the docs above writes the image
+  % list with a space after each comma (e.g. "IMAGE1.png, IMAGE2.pdf"), but
+  % splitting on "," alone leaves that leading space glued to every name
+  % after the first. That space then travels into \IfFileExists, the
+  % extension check and \includegraphics, so a perfectly real file gets
+  % reported as "Missing Image" simply because it was not the first one in
+  % the list. Trim leading/trailing spaces off every image name right here,
+  % once, before anything else touches \g_cn_images_seq.
+  \seq_clear:N \l_tmpa_seq
+  \seq_map_inline:Nn \g_cn_images_seq {
+    \seq_put_right:Nx \l_tmpa_seq { \tl_trim_spaces:n { ##1 } }
+  }
+  \seq_gset_eq:NN \g_cn_images_seq \l_tmpa_seq
+
   \int_gadd:Nn \g_cn_total_images_int { \seq_count:N \g_cn_images_seq }
-  
+
+  % BUGFIX (Claude): the `size` sub-argument's docs promise defaults of
+  % 0.8\linewidth / \textheight / T, but the old code unconditionally split
+  % on ";" and popped 3 times -- if the user gave fewer than 3 fields (e.g.
+  % size={4cm;6cm} with no keepaspectratio flag, or size={4cm} alone, both
+  % shown as valid-looking usage by the docs above), the missing pops left
+  % \l_cn_parsed_*_tl either stale from a previous call or holding the
+  % internal \q_no_value marker, which then leaked into \includegraphics's
+  % width/height/keepaspectratio keys. Pre-load the documented defaults,
+  % then only overwrite each one if the user actually supplied that field
+  % (the :NNTF pop leaves its target untouched when the sequence runs out).
+  \tl_set:Nn \l_cn_parsed_width_tl  { 0.8\linewidth }
+  \tl_set:Nn \l_cn_parsed_height_tl { \textheight }
+  \tl_set:Nn \l_cn_parsed_keep_tl   { T }
   \seq_set_split:NnV \l_tmpa_seq { ; } \l_cn_size_tl
-  \seq_pop_left:NN \l_tmpa_seq \l_cn_parsed_width_tl
-  \seq_pop_left:NN \l_tmpa_seq \l_cn_parsed_height_tl
-  \seq_pop_left:NN \l_tmpa_seq \l_cn_parsed_keep_tl
+  \seq_pop_left:NNTF \l_tmpa_seq \l_cn_parsed_width_tl  { } { }
+  \seq_pop_left:NNTF \l_tmpa_seq \l_cn_parsed_height_tl { } { }
+  \seq_pop_left:NNTF \l_tmpa_seq \l_cn_parsed_keep_tl   { } { }
   \str_if_eq:VnTF \l_cn_parsed_keep_tl { T }
     { \tl_set:Nn \l_cn_parsed_keep_tl { true } }
     { \tl_set:Nn \l_cn_parsed_keep_tl { false } }
@@ -318,10 +397,25 @@
   }
 
 
+  % BUGFIX (Claude): the docs describe TWO caption modes: a per-image list
+  % using `[...]` blocks separated by ";", OR (when the string has no `[`
+  % at all) a single global caption string to be placed under the LAST
+  % image of the batch. Only the first mode was ever implemented -- when
+  % no "[" was present the whole captions string was just discarded, so
+  % `captions={"My caption"}` silently produced no caption at all. Route
+  % the no-bracket case into \l_cn_global_caption_tl instead, and emit it
+  % once after the layout loop below.
   \seq_clear:N \l_cn_captions_seq
-  \str_if_in:NnT \l_cn_captions_tl { [ } {
-    \seq_set_split:NnV \l_cn_captions_seq { ; } \l_cn_captions_tl
-  }
+  \tl_clear:N \l_cn_global_caption_tl
+  \str_if_in:NnTF \l_cn_captions_tl { [ }
+    {
+      \seq_set_split:NnV \l_cn_captions_seq { ; } \l_cn_captions_tl
+    }
+    {
+      \tl_if_empty:NF \l_cn_captions_tl {
+        \tl_set:Nn \l_cn_global_caption_tl { \l_cn_captions_tl }
+      }
+    }
   \int_compare:nT { \seq_count:N \l_cn_captions_seq > \seq_count:N \g_cn_images_seq } {
     \bool_gset_true:N \g_cn_excess_captions_bool
   }
@@ -331,6 +425,7 @@
   % ===================================================================
   
   \seq_gclear:N \g_cn_resolved_layout_seq
+  \seq_gclear:N \g_cn_resolved_pages_seq
   \int_set:Nn \l_cn_pdf_index_int { 0 }
   % BUGFIX (Claude): splitting an EMPTY tl by ";" produces a sequence with
   % ONE (empty-string) item in expl3, not zero -- confirmed by direct test.
@@ -346,7 +441,19 @@
   
     \seq_set_split:Nnn \l_tmp_ext_seq { . } { ##1 }
     \seq_pop_right:NN \l_tmp_ext_seq \l_cn_ext_tl
-    \tl_set:Ne \l_cn_ext_tl { \str_lowercase:n { \l_cn_ext_tl } }
+    % BUGFIX (Claude): \str_lowercase:n takes its argument literally (that is
+    % what the ":n" means) -- it does NOT expand it first. Handing it the
+    % bare variable \l_cn_ext_tl (instead of the STRING that variable holds,
+    % e.g. "png") made it stringify the variable's NAME instead of its
+    % value, so \l_cn_ext_tl ended up literally containing the 12 characters
+    % "\l_cn_ext_tl". Every extension, including perfectly valid ones, then
+    % failed the pdf/png/jpg/jpeg comparison and got reported as
+    % "INVALID EXTENSION". \exp_args:No forces one round of expansion on
+    % \l_cn_ext_tl (turning it into its current value, e.g. "png") before
+    % \str_lowercase:n ever sees it. Verified with a standalone test: the
+    % old pattern produces "\l_cn_ext_tl" via \tl_show:N; this one produces
+    % the correct lowercased string.
+    \tl_set:Ne \l_cn_ext_tl { \exp_args:No \str_lowercase:n \l_cn_ext_tl }
     
     \bool_set_false:N \l_tmpb_bool
     \clist_map_inline:nn { pdf, png, jpg, jpeg } {
@@ -359,7 +466,20 @@
       }
     }
 
-    \IfFileExists{##1} {
+    % BUGFIX (Claude): \IfFileExists is a legacy LaTeX2e macro that dispatches
+    % its two branches through classic \def-based plumbing (\reserved@a and
+    % friends). Each such \def layer demands doubling every literal "#" in
+    % whatever text passes through it -- on top of the doubling this nested
+    % expl3 map loop (####1 for \l_cn_tmp_pages_seq, one level inside the
+    % \g_cn_images_seq map) already needed. That extra, easy-to-miscount
+    % layer is exactly what broke here ("Illegal parameter number in
+    % definition of \reserved@a"), and it would silently break again the
+    % next time this branch's contents change. \file_if_exist:nTF is the
+    % native expl3 conditional for the same check: its branches are
+    % processed with the same, predictable expl3 expansion rules as the
+    % surrounding code, so the hash-doubling count here stays exactly what
+    % the nesting level says it should be -- nothing extra to track.
+    \file_if_exist:nTF { ##1 } {
       \str_if_eq:eeTF { \l_cn_ext_tl } { pdf } {
         \graphics_get_pagecount:nN { ##1 } \l_cn_pagecount_tl
         
@@ -376,7 +496,8 @@
                   \noexpand\\ \hspace{1em} \bullet ~ \noexpand\textbf{[OVERFLOW]} ~ \texttt{##1} ~ \noexpand\textit{(Req:~####1,~Max:~\tl_use:N \l_cn_pagecount_tl)}
                 }
               } {
-                \seq_gput_right:Nx \g_cn_resolved_layout_seq { {##1}{####1} }
+                \seq_gput_right:Nx \g_cn_resolved_layout_seq { ##1 }
+                \seq_gput_right:Nx \g_cn_resolved_pages_seq { ####1 }
               }
             }
           } {
@@ -386,13 +507,16 @@
             }
           }
         } {
-          \seq_gput_right:Nn \g_cn_resolved_layout_seq { {##1}{1} }
+          \seq_gput_right:Nn \g_cn_resolved_layout_seq { ##1 }
+          \seq_gput_right:Nn \g_cn_resolved_pages_seq { 1 }
         }
       } {
-        \seq_gput_right:Nn \g_cn_resolved_layout_seq { {##1}{1} }
+        \seq_gput_right:Nn \g_cn_resolved_layout_seq { ##1 }
+        \seq_gput_right:Nn \g_cn_resolved_pages_seq { 1 }
       }
     } {
-      \seq_gput_right:Nn \g_cn_resolved_layout_seq { {##1}{MISSING} }
+      \seq_gput_right:Nn \g_cn_resolved_layout_seq { ##1 }
+      \seq_gput_right:Nn \g_cn_resolved_pages_seq { MISSING }
     }
   }
 
@@ -419,7 +543,14 @@
           \normalfont\small\color{black}\flushleft
           The~compilation~was~forcefully~halted~due~to~the~following~rule~violations:\vspace{0.5em}
           
-          \bool_if:NT \g_cn_column_math_bool { \\ \hspace{1em} \bullet ~ \textbf{[MATH~ERROR]}~Requested~\int_use:N \l_cn_cols_int~columns,~but~only~provided~\int_use:N \l_tmpa_int~images. }
+          % BUGFIX (Claude): this branch (the hard-halt/error figure) and the
+          % normal-layout figure below are mutually exclusive halves of the
+          % same \bool_if:nTF -- \l_tmpa_int is only ever assigned in the
+          % OTHER (layout) branch, so on THIS branch it still held whatever
+          % \l_tmpa_int happened to contain from some unrelated earlier use
+          % (a stale/garbage number). The actual image count is available
+          % directly from \g_cn_images_seq regardless of which branch runs.
+          \bool_if:NT \g_cn_column_math_bool { \\ \hspace{1em} \bullet ~ \textbf{[MATH~ERROR]}~Requested~\int_use:N \l_cn_cols_int~columns,~but~only~provided~\seq_count:N \g_cn_images_seq~images. }
           \bool_if:NT \g_cn_excess_captions_bool { \\ \hspace{1em} \bullet ~ \textbf{[CAPTION~MISMATCH]}~More~captions~provided~than~images. }
           \bool_if:NT \g_cn_pdf_excess_blocks_bool { \\ \hspace{1em} \bullet ~ \textbf{[EXCESS~PDF~ROUTING]}~Provided~more~semicolon~sets~in~pdfpages~than~total~PDFs~detected. }
           
@@ -449,15 +580,29 @@
       \int_set:Nn \l_tmpa_int { \seq_count:N \g_cn_resolved_layout_seq }
       
       \seq_map_indexed_inline:Nn \g_cn_resolved_layout_seq {
-        \tl_set:Ne \l_tmpa_tl { \tl_head:n { ##2 } }
-        \tl_set:Ne \l_tmpb_tl { \tl_tail:n { ##2 } }
+        \tl_set:Ne \l_tmpa_tl { ##2 }
+        \tl_set:Ne \l_tmpb_tl { \seq_item:Nn \g_cn_resolved_pages_seq { ##1 } }
 
         % Illegal Character Validation Guard (CATCODE SAFE)
+        % BUGFIX (Claude): \str_if_in:nnT takes ITS FIRST ARGUMENT LITERALLY
+        % (that's what ":n" means -- no expansion). Writing the bare
+        % variable \l_tmpa_tl inside that literal argument, as the code did
+        % here, meant it stringified the VARIABLE'S OWN NAME
+        % ("\l_tmpa_tl", which itself contains a literal underscore!) rather
+        % than the filename it holds -- so the underscore check was
+        % guaranteed to fire on every single image, real underscore or not,
+        % and \exp_args:Nno on the other three checks only pre-expanded the
+        % SECOND argument, leaving the same bug for \l_tmpa_tl itself.
+        % Verified with a standalone test: the old pattern flagged
+        % "IMG1.png" (no underscore at all) as illegal; \str_if_in:NnT,
+        % which is the variant built to fetch a variable's actual VALUE
+        % (via \tl_to_str:N) before searching it, correctly leaves it
+        % unflagged and still catches real underscores in real filenames.
         \bool_set_false:N \l_tmpb_bool
-        \exp_args:Nno \str_if_in:nnT { \l_tmpa_tl } { \c_space_tl } { \bool_set_true:N \l_tmpb_bool }
-        \str_if_in:nnT { \l_tmpa_tl } { _ } { \bool_set_true:N \l_tmpb_bool }
-        \exp_args:Nno \str_if_in:nnT { \l_tmpa_tl } { \c_percent_str } { \bool_set_true:N \l_tmpb_bool }
-        \exp_args:Nno \str_if_in:nnT { \l_tmpa_tl } { \c_hash_str } { \bool_set_true:N \l_tmpb_bool }
+        \str_if_in:NnT \l_tmpa_tl { \c_space_tl } { \bool_set_true:N \l_tmpb_bool }
+        \str_if_in:NnT \l_tmpa_tl { _ } { \bool_set_true:N \l_tmpb_bool }
+        \str_if_in:NnT \l_tmpa_tl { \c_percent_str } { \bool_set_true:N \l_tmpb_bool }
+        \str_if_in:NnT \l_tmpa_tl { \c_hash_str } { \bool_set_true:N \l_tmpb_bool }
 
         \bool_if:NT \l_tmpb_bool {
           \setlength{\fboxrule}{2pt}
@@ -481,7 +626,16 @@
         }
 
         \bool_if:NF \l_tmpb_bool {
-        \str_if_eq:nnTF { \l_tmpb_tl } { MISSING }
+        % BUGFIX (Claude): same class of bug as the extension/illegal-char
+        % checks above -- ":nn" takes both sides literally, so this was
+        % comparing the literal text "\l_tmpb_tl" (12 characters, never
+        % equal to "MISSING") instead of the page value that variable
+        % holds. A genuinely missing file could never trigger the
+        % "Missing Image" box; it would silently fall through to
+        % \includegraphics on a nonexistent file instead. ":VnTF" fetches
+        % \l_tmpb_tl's actual value first, matching the working pattern
+        % already used for \l_cn_draft_tl/\l_cn_numbering_tl below.
+        \str_if_eq:VnTF \l_tmpb_tl { MISSING }
           {
             \setlength{\fboxrule}{1.5pt}
             \fcolorbox{red}{white}{
@@ -532,6 +686,21 @@
             }
         }
         } % end \bool_if:NF \l_tmpb_bool -- closes the "skip this image if its filename was illegal" guard
+      }
+
+      % BUGFIX (Claude): emits the single global caption (see the captions
+      % parsing above) once, after every image in the batch, so it lands
+      % below the last image inside this same figure -- exactly as
+      % documented. Placed outside the per-image loop (rather than tied to
+      % the last loop iteration) so it still appears even if the last image
+      % in the list happened to be skipped (missing file, illegal
+      % filename, etc.).
+      \tl_if_empty:NF \l_cn_global_caption_tl {
+        \seq_if_empty:NT \l_cn_captions_seq {
+          \str_if_eq:VnTF \l_cn_numbering_tl { T }
+            { \caption{\l_cn_global_caption_tl} }
+            { \caption*{\l_cn_global_caption_tl} }
+        }
       }
     \end{figure}
     \xspace
