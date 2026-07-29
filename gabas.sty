@@ -1,0 +1,542 @@
+% =====================================================================
+% PACKAGE: circuitnacho.sty
+% AUTHOR: NACHO
+% DESIGN SPECIFICATION: README-IMAGE-PIPELINE.md
+% =====================================================================
+
+% AUTHOR: NACHO
+% DATE AND TIME WHEN THE CODING BEGAN: 2026/07/29, 07:07, SUNNY MORNING
+% PLACE OF THE CODING:  DESAMPARADOS CENTRO, SAN JOSE, COSTA RICA
+% DATE AND TIME WHEN THE CODING WAS FINISHED: CLAUDE SHALL SAY
+% PACKAGE WHERE THIS FUNCTIONS BELONG: gabas,sty
+% USAGE:
+% GENERAL PURPOSE:
+% LICENSE: MIT
+% SECURITY CONCERNS: NONE
+% ADDITIONAL NOTES: THIS IS MY OWN PIECE OF TRIVIAL AND TOY SOFTWARE FOR LATEX; YOU ARE FREE TO USE IT, MODIFY IT AND DISTRIBUTED AS YOU SEE FIT, BUT YOU MUST PROPERLY CITE ME AND CREDIT ME AS THE OTIGINAL AUTHOR WHENVER YOU TAKE ADVANTAGE OF MY WORK HEREIN.
+
+\NeedsTeXFormat{LaTeX2e}
+%\ProvidesPackage{gabas}{2026/07/29}{1.0}{v0.1 Simple multi-image insertion for Nacho's Sadiku project}
+
+\RequirePackage{graphicx}
+\RequirePackage{float}
+\RequirePackage{caption}
+\RequirePackage{xspace}
+\RequirePackage{xparse}
+\RequirePackage{expl3}
+\RequirePackage{xcolor}
+\RequirePackage{l3graphics} % needed by \graphics_get_pagecount:nN, used below for multi-page PDF detection
+\RequirePackage{pdfpages}
+
+% BECAUSE I WANTED MY NON TRIVIAL, REAL-LIFE USABLE AND ACTUALLLY USEFUL ''\INSRTIMAGES'' FUNCTION TO BE REALLY AGILE AND NOT HAVING TO SPECIFY EACH IMAGE FED TO HER THE IMAGE'S WHOLE PATH, AND BECAUSE I WANTED THIS \INSRTIMAGES FUNCTION TO BE ABLE TO RECEIVE, WITHOUT ANY PROBLEM, ANY IMAGE FROM ANY SOURCE FOLDER WITHIN MY LATEX PROJECT, I CODED THIS  ''\REGISTERCHAPTERPATHS' FUNCTION FIRST BEFORE PROCEEDING TO THE IMAGES FUNCTION EXERCISE. I COULD HAVE CODED THIS FUNCTION'S CODE WITHIN MY '\INSRTIMAGES'' FUNCTION, OR EVEN BETTER, I COULD HAVE INVOKED THIS  ''\REGISTERCHAPTERPATHS' FUNCTION WITHIN MY ''\INSRTIMAGES'' FUNCTION, BUT I REFRAINED FROM DOING SO BECAUSE I WANT MY ''\INSRTIMAGES'' FUNCTION, AS IMPERFECT AS IT IS NOW, TO BE A UNIVERSAL LATEX FUNCTION, AIMING AT A PROFESSIONAL LEVEL, AND MY ''\REGISTERCHAPTERPATHS' FUNCTION IS SPECIFIC TO MY CURRENT SAKIKU' SEFER SOLUTIONS LATEX PROKECT. HOWEVER, I WOULD LOVE YOU TO TEACH ME HOW TO CODE A FUNCTION SIMILAR TO THIS ''\REGISTERCHAPTERPATHS' FUNCTION THAT IS ACTUALLY UNIVERSAL AND WHICH A USER WHO EVENTUALLLY USES MY FUTURE LATEX PACKAGE, CAN USE ON OVERLEAF WITHOUT PROBLEMS AT ALL.
+
+% I DON'T EALLY KNOW WHAT THIS IS, AND I WOULD LOVE AN EXPLANATION FROM YOU. I JUST KNOW THIS IS REQUIRED FOR THE KIND OF PROGRAMMING I DID IN BOTH FUNCTIONS CONTAINED HERE.
+\ExplSyntaxOn
+
+% AND THERE ARE THE NECESSARY SEQUENCE VARIABLES; I T IS TO MY UNDERSTANDING THAT IT IS BETTER TO CODE THEM OUTSIDE THE FUNCTION'S BODY, BUT I WILL LET YOU LECTURE ME ON THIS.
+\seq_new:N \l_auto_paths_seq
+\seq_new:N \l_img_names_seq
+\seq_new:N \l_img_captions_seq
+
+% =============================================================
+% AND HERE IS WHERE THE BOY FO THE ''\REGISTERCHAPTERPATHS' FUNCTIO ACTUALLY BEGINS. AS I HAVE ALREADY STATED, IT IS SPECIFIC TO MY CURRENT LATEX PROJECT, AND ACCORDING TO WHAT I READ ONLINE, THIS KIND OF FUNCTIONS ARE CALLED 'DYNAMIC PATH REGISTRATION FUNCTIONS'; I WOULD LOVE YOUR EXPLANATION ON THIS. IT IS NOTEWORTHY TO SAY THAT, IF I AM NOT MISTAKEN, ONCE MAIN.TEX LOADS THE  SADIKU-SOLUTIONS.STY MODUL [IN CASE YOU GREEN LIGHT ME TO INCLUDE THESE CODE AND FUNCTIONS WITHIN OUR  SADIKU-SOLUTIONS.STY MODULE] THIS FUNCTION ACTS AUTOMATICALLY, WITHOUT THE USER HAVING TO INVOKE IT. I CODED IT SO THAT IT HAS TO BE SUMMONED ONLY IN CASE YOU WANT TO VARY THE HARD CODED DEFAULT PARAMETER OF 10 [10 STANDS FOR THE 10 CHAPTERS WITHIN THE SADIKU'S SEFER AND WITHIN MY PROJECT].
+% =============================================================
+\NewDocumentCommand{\RegisterChapterPaths}{O{10}}
+{
+  \seq_clear:N \l_auto_paths_seq
+  
+% ROOT DIRECTORY.
+  \seq_put_right:Nn \l_auto_paths_seq { ./ }
+  
+  
+% THIS IS A MINDBLOWING AND VERY INSANE KIND OF CRAZY CONTROL STRUCTURE TO DEFINE THE NAMES OF THE IMAGE SOURCE FOLDERS UP TO 9, I THINK [THE -1 THING IS SOMETHING I COPIED FROM SOMEONE ELSE'S CODE AND I DON'T KNOW WHAT IT MEANS OR DOES IN THIS STRUCTURE. [LATEX CONTINUES TO BAFFLE ME.]
+  
+  \int_compare:nTF { #1 < 10 }
+    {
+      \int_step_inline:nnn { 1 } { #1 } {
+        \seq_put_right:Nn \l_auto_paths_seq { ./CHAPTER0##1-PRACTICE-PROBLEMS-IMAGES/ }
+        \seq_put_right:Nn \l_auto_paths_seq { ./CHAPTER0##1-EXERCISES-IMAGES/ }
+      }
+    }
+    {
+      \int_step_inline:nnn { 1 } { 9 } {
+        \seq_put_right:Nn \l_auto_paths_seq { ./CHAPTER0##1-PRACTICE-PROBLEMS-IMAGES/ }
+        \seq_put_right:Nn \l_auto_paths_seq { ./CHAPTER0##1-EXERCISES-IMAGES/ }
+      }
+      
+      \int_step_inline:nnn { 10 } { #1 } {
+        \int_compare:nTF { ##1 < 10 }
+          {
+            \seq_put_right:Nn \l_auto_paths_seq { ./CHAPTER0##1-PRACTICE-PROBLEMS-IMAGES/ }
+            \seq_put_right:Nn \l_auto_paths_seq { ./CHAPTER0##1-EXERCISES-IMAGES/ }
+          }
+          {
+            \seq_put_right:Nn \l_auto_paths_seq { ./CHAPTER##1-PRACTICE-PROBLEMS-IMAGES/ }
+            \seq_put_right:Nn \l_auto_paths_seq { ./CHAPTER##1-EXERCISES-IMAGES/ }
+          }
+      }
+    } % DO YOU THINK THERE IS A BETTER AND MORE ORDERED WAY I MIGHT WORK WITH THE CURLY BRACKETS? THEY ARE NESTED AND ARE A SOURCE OF HORRIBLE LOGICAL ERRORS JUST AS IN JAVA OR IN C.
+  \exp_args:NV \graphicspath \l_auto_paths_seq
+}
+
+% ===========================================================================================
+% AND HERE GOES THE SO CALLED ''AUTOMATIC EXECUTION HOOK'': AS FAR AS I UNDERSTND, THIS IS WHAT ACCOMPLISHES THAT THIS ''\REGISTERCHAPTERPATHS' FUNCTION
+% ACT AUTOMATICALLY WITHOUT THE USER HAVING TO INVOKE IT EXPLICITLY, ONCE  MAIN.TEX LOADS THE  SADIKU-SOLUTIONS.STY MODULE.
+% ===========================================================================================
+\AddToHook{begindocument}{%
+  \RegisterChapterPaths
+}
+
+% ALL I KNOW ABOUT THIS FINAL INSTRUCTION/COMMAND/SENTENCE [?] IS THAT, OUT OF COMMON SENSE, IT CLOSES WHAT THE COMMAND '\EXPSYNTAXON'' OPENED AT THE VERY BEGINNING OF THIS FUNCTION'S DEFINITION. PLEASE EXPAIN.
+\ExplSyntaxOff
+
+% ************************************************************************************************************************************************************************************************************************
+
+% AND NOW, CLAUDE, WITHOUT ANY FURTHER ADO, HERE WE GO WITH THE REAL EXERCISE: THE '\INSERTIMAGES'' FUNCTION. I HOPE NOT TO DIDAPPOINT ME, AND PLEASE TAKE INTO ACCOUNT THAT I'M A LATEX ROOKIE WHEN YOU SEE HOW GREEN AND UNPOLISHED THE CODE IS.
+
+% THE ''\INSERTIMAGES'' FUNCTION HAS SOOOOOOOO MANY SMALL TECHNICAL DETAILS, AND THERE IS SO MUCH I COULD SAY ABOUT HER, AND WHICH I THINK AN EVENTUAL USER OF MY EVENTUAL AND FUTURE LATEX PAKCAHE SHOULD KNOW [ESPECIALLY THE PART ABOUT THE HUGE AMOUNT OF OPTIONAL ARGUMENTS THIS `\INSERTIMAGES'' FUNCTION HAS, AND HOW TO USE THEM AND TAKE ADVANTAGE OF THEM, AND VERY IMPORTANT, WHAT THE DEFAULT VALUES FOR THESE OTPIONAL ARGUMENTS ARE] THAT I CONSIDER IT IMPERATIVCE TO WRITE A README TECHNICAL SPECIFICATIONS FILE FOR THIS FUNCTIONS [THIS COULD BE VERY USEFUL AS IT WOULD GROW IN CONTENT AS I CREATE MORE FUNCTIONS FOR MY EVENTUA, FUTURE LATEX PACKAHE, SO I JUST APPEND THE NEW INFO, AND THIS WOULD THEN BECOME THE BASES FOR THE MODULE'S README TECHNICAL SPECIFICATIONS DOCUMENTATION, EVEN THOUGH I HAVE 0 EXPERIENCE WITH HOW THIS WORKS AND I WANT TO GET SCHOOLED NY YOU]. HOWEVER, BECAUSE I DON'T KNOW HOW TO WRITE SUCH A DOCUMENT, NOR THE KIND OF WRITING STYLE USUALLY EMLOYED IN THEM, NOR THE KIND OF DETAILS ONE INCLUDES AND THE ONES ONE LEAVES OUT, I THINK ONCE YOU HAVE CHECKED, OPTIMIZED AND CORRECTED THIS `\INSERTIMAGES'' FUNCTION, I SHALL HAVE SOME AI WRITE THE README.MD [OR IS IT README.RD?] FOR ME AND THEN I SHALL USE THE OUTPUT FILE TO LEARN HOW TO WRITE ONE ALL BY MYSELF. I MUST MENTION HERE THAT I ALREADY ASKED GOOGLE'S GEMINI AI PRO VERION TO WRITE AN EXHAUSTIVE AND EXHAUSTIVE README.MD OF THIS ''\INSERTIMAGES'' FUNCTION, AND THEOUTPUT  RESULT WAS A TECHNICAL DOCUMENT SO SHORT, OF SUCH A LOW TECHNICAL QUALITY, AND WHICH OMITTED SO MUCH VITAL INFO, I HAVE DECIDED TO TRY WITH SOME OTHER AI.
+
+% ALL THE NECESSARY PACKAGES FOR THIS  '\INSERTIMAGES'' FUNCTION HAVE BEEN LOADED AT THE VERY BEGINNING OF THIS PROGRAM, AND I WON'T RELOAD THEM AGAIN `CAUSE I AM SURE IT IS COMPLETELY UNNECESARY AND WOULD BE A TEXTSEFER EXAMPLE OF TERRIBLE CODING PRACTICE; I READ ON A SEFER ONLINE THAT THE PACKAGES LOADED AT THE BEGINNING OF A LATEX PROGRAM ARE GLOBAL FOR ANY PIECE OF CODE THAT FOLLOWS THE DECLARATION OF THE LOADINGS. PLEASE, CORRECT ME IF I'M WRONG.
+
+% THE SAME STORY AS BEFORE.
+\ExplSyntaxOn
+
+% THESE ARE THE `MASTER'' DATA CONTAINERS [OR SO I THINK; I THINK THEY ARE SOME KIND OF GLOBAL VARIABLES FOR MY `\INSERTIMAGES'' FUNCTION] AND I DECLARED THEM BEFORE DECLARING THE `\INSERTIMAGES'' FUNCTION'S DECLARATION HERSELF BECAUSE I SAW ONLINE EVERYONE DID IT THIS WAY. PLEASE EXPLAIN WETHER THIS COULD BE CONTAINED WITHIN THE DECLARATION OF MY `\INSERTIMAGES'' FUNCTION RO NOT, AND POCHEMU, S'IL VOUS PLAIT.
+\seq_new:N \g_cn_images_seq
+\seq_new:N \g_cn_resolved_layout_seq
+\seq_new:N \l_cn_pdf_blocks_seq
+\seq_new:N \l_cn_tmp_pages_seq
+\seq_new:N \l_cn_captions_seq
+\seq_new:N \l_tmp_ext_seq
+
+\int_new:N \l_cn_pdf_index_int
+\int_new:N \g_cn_compilation_int
+\int_new:N \g_cn_total_images_int
+
+\tl_new:N \l_cn_ext_tl
+\tl_new:N \l_cn_pagecount_tl
+\tl_new:N \g_cn_diagnostic_manifest_tl
+\tl_new:N \l_cn_parsed_width_tl
+\tl_new:N \l_cn_parsed_height_tl
+\tl_new:N \l_cn_parsed_keep_tl
+
+\bool_new:N \g_cn_pdf_overflow_bool
+\bool_new:N \g_cn_pdf_missing_spec_bool
+\bool_new:N \g_cn_pdf_excess_blocks_bool
+\bool_new:N \g_cn_excess_captions_bool
+\bool_new:N \g_cn_invalid_ext_bool
+\bool_new:N \g_cn_column_math_bool
+
+% THESE ARE HARDCODED NUMBERS WHICH THE USER CAN'T VARY AND WHICH I CHOSE BASED UPON MY OWN CRITERIUM AND EXPIERIENCE TO ACT AS THRESHOLDS TO HELP IN THE LOGIC OF THE ''COMPILE-AS-IMAGES-ARE-OR-SUGGEST-DRAFT'' DECISION ALGORITHMS THAT DECIDE WHETHEER IT IS BETTER, AFTER THE FIRST COMPILING RUN, TO INFORM THE USER VIA A CONSOLE MESSAGE THAT IN THE THE SUBSEQUENT COMPILATION RUNS, HE SHOULD CHANGE THE STATUS TO ''DRAFT=T'' AND THUS THE REAL IMAGES ARE NOT EMBEDDED WITHIN THE DOCUMENT IN THE FOLLOWING COMPILATION RUNS UNTIL THE FINL  COMPILATION RUN. THE USER HAS BEEN GIVEN POWER TO MANIPULATE THIS DECISION, OD COURSE.
+\int_const:Nn \c_cn_max_page_threshold_int { 21 }
+\int_const:Nn \c_cn_max_local_batch_int { 5 }
+\int_const:Nn \c_cn_max_global_images_int { 41 }
+
+% HERE I DEFINED AND NAMED SOME OF THE ERROR MESSAGES TO BE DISPLAYED ON THE CONSOLE TO THE USER. I DID IT SO FOR CLARITY'S AND MODULARITY'S SAKE. PLEASE GIVE ME YOUR OPINION.
+\msg_new:nnn { circuitnacho } { complexity-warning }
+  { Complexity~threshold~exceeded!~Consider~using~draft=T~for~faster~compilation. }
+\msg_new:nnn { circuitnacho } { hard-halt-error }
+  { Critical~Logic~or~Boundary~Error~Detected!~Check~the~PDF~canvas~for~details. }
+
+% AND THIS IS NO MORE THAN A SUBROUTINE TO USE THE INVISIBLE .AUX LATEX FILE IN ORDER TO KEEP A GLOBAL COUNTER AND TO KEEP A LOG OF THE IMAGES EMBEDDED, WHICH GROWS WITH EACH INSTANCE OF SUMMONING OF THIS `\INSERTIMAGES'' FUNCTION.
+\cs_if_exist:cTF { savedcompilationcounter }
+  { \int_gset:Nn \g_cn_compilation_int { \use:c { savedcompilationcounter } + 1 } }
+  { \int_gset:Nn \g_cn_compilation_int { 1 } }
+
+\cs_if_exist:cTF { savedtotalimages }
+  { \int_gset:Nn \g_cn_total_images_int { \use:c { savedtotalimages } } }
+  { \int_gset:Nn \g_cn_total_images_int { 0 } }
+
+\AddToHook{enddocument}{
+  \iow_now:cx { @auxout } {
+    \string\gdef\string\savedcompilationcounter{\int_use:N \g_cn_compilation_int}
+    \string\gdef\string\savedtotalimages{\int_use:N \g_cn_total_images_int}
+  }
+}
+
+% THIS IS A NICE TRICK I LEARNED ON STACKOVERFLOW: YOU CAN CODE A PYTHON-LIKE DICTIONARY IN LATEX; I DID SO HERE TO KEEP ORDER, GOOD PROGRAMMING AND CLARITY WHEN IT COMES TO ALL THE MANY OPTIONAL ARGUMENTS THIS `\INSERTIMAGES'' FUNCTION CAN TAKE AT ONCE.
+\keys_define:nn { circuitnacho } {
+  draft     .tl_set:N  = \l_cn_draft_tl,
+  draft     .initial:n = F,
+  size      .tl_set:N  = \l_cn_size_tl,
+  size      .initial:n = {0.8\linewidth;\textheight;T},
+  columns   .int_set:N = \l_cn_cols_int,
+  columns   .initial:n = 3,
+  numbering .tl_set:N  = \l_cn_numbering_tl,
+  numbering .initial:n = T,
+  captions  .tl_set:N  = \l_cn_captions_tl,
+  captions  .initial:n = {},
+  pdfpages  .tl_set:N  = \l_cn_pdfpages_tl,
+  pdfpages  .initial:n = {}
+}
+
+% =====================================================================
+% THIS WHERE THE `\INSERTIMAGES'' FUNCTION IS DEFINED PROPERLY AND WHERE I WROTE THE CODE OF HER BODY.
+% ==================================================================================
+%
+% AN EXTREMELY DETAILED BREAKDOWN OF AL RHE ARGUMENTS THIS FUNCTION ACCEPTS: '\NewDocumentCommand{\InsertImages}{ s m o }'''
+% 
+% 1. [ s ] INVOKING THIS FUNCTION WITH AN ASTERISK [*] RIGHT NEXT TO ITS NAME TOGGLES AN OPTIONAL VARIATION IN THE DEFAULT BEHAVIOR OF THIS `\INSERTIMAGES'' FUNCTION.
+% - USAGE: \InsertImages*{iIMAGE1.png, IMAGE2.pdf,IMAGE3.jpg}
+% - IF IT'S PRESENT, THE IMAGES ARE EMBEDDED IN A HORIZONTAL WAY; IF IT'S ABSENT, THE FUNCTION BEHAVES IN ITS DEFAULT WAY, AND THE IMAGES ARE EMBEDDED ONE BELOW THE PREVIOUS ONE.
+%
+% ***********************************************************************************************************************************************************************************************
+%
+% 2. [ m ] - THE STRING WHICH IS THE LIST OF ALL THE IMAGES TO BE EMBEDDED; OBLIGATIRY PARAMETER; IT IS NOT NECESSARY TO DECLARE THE IMAGES SOURCE PATH, JUST THE IMAGES' NAMES WITH THEIR CORRESPONDING EXTENSIONS, EACH SEPARATED FROM THE NEXT ONE BY A COMMA; IT ISN'T NECESSARY TO USE QUOTES [' '''] WITHIN THE STRING/LIST OF THIS MANDATORY PARAMETER.
+% - USAGE: \InsertImages*{iIMAGE1.png, IMAGE2.pdf,IMAGE3.jpg}{columns=5}
+% * NOTE: THIS FUNCTION HAS ALGORITHMS WHICH VERIFY THAT THE PROVIDED IMAGE NAMES GAVE ONLY LEGAL CHARACTERS, AND ALSO THAT CHECK THAT THE EXTENSIONS OF THE PROVIDED IMAGE NAMES ARE VALID. CLAUDE, PLEASE REVIEW AND OPTIMIZE THIS, AND CHECK IF IT'S NECESSARY TO ADD EXTENSION NAMES TO THE LIST OF ALLOWED ONES; CONSIDER WHETHER THIS IS WORTH CODING ANOTHER DICTIONARY OR NOT.
+%
+% ***********************************************************************************************************************************************************************************************
+%
+% 3. [ o ] - THE KEY-VALUE PARAMETERS, WHICH ARE OPTIONAL, AND WHOSE DEFAULT VALUES THE USER MAY OVERRIDE IF HE WISHES TO.BECAUSE OF CONCERNS OF THE USER HAVING TO TYPE TOO MANY EMPTY []'S TO ARRIVE TO THE PARAMETER HE MIGHT WANT TO MANIPULATE, I CODED IT SO THAT ALL THESE OPTIONAL VARIABLES GO WITHIN A SINGLE `{ }', SEPARATED BY COMMS,  BECAUSE, TECHNICALLY, THEY ARE SUB-ARGUMENTS [I MADE UP THAT TERM] WITHIN A SINGLE OPTIONAL ARGUMENT, AND THEY ARE THE ENTRIES OF THE PYTHON-LIKE DICTIONARY I CODED ABOVE. I THINK THEY MUST BE NAMED WEITH THEIRDICTIONARY DEFINED NAMES IN OTRDER TO BE USED [I'M NOT SURE]. IT IS NOT NECESSARY TO INVOKE THEM ALL, AND THEY CAN BE USED IN AN ORDER DIFFERENT FROM THE CODED HERE THANKS TO THE AFOREMENTIONED DICTIONARY.
+% - Usage: \InsertImages*{iMG1.png, GABATON.jpg, KRAKEN.pdf}{draft=F, size={width;heiight;T}, columns=2, numbering=F, captions= {[''CAPTION1''];[''CAPTION2];[''CAPTION3'']; ;[''CAPTION5']}, pdfpages = {9,3;7,2,5;613}}
+%
+% ***********************************************************************************************************************************************************************************************
+%
+% THERE IS JUST TOO MUCH THIS FUNCTION CAN DO, AND THAT EXPLAINS WHY I INCLUDED SOOOOOOOOOO MANY OPTIONAL SUB-ARGUMENTS:
+% THEY ARE THE ESSENCE AND RAISON D'ETRE OF THIS FUNCTION, AND SO I EXPLAIN AS MUCH AS I CAN NOW ABOUT THEM BELOW:
+%
+% ================================================================================================================================================
+% I REPEAT THAT ALL THESE SUB-ARGUMENTS ARE OPTIONAL, AND THE ENTIRETY OF THEM MIGHT BE OMITTED BY NOT WRITING THE `{ }' AT ALL. THIS MUST BE MADE CRYSTAL CLEAR TO THE USER OF THIS FUNCTION.
+% =============================================================================================================================================
+%
+% I)				
+% SUB-ARGUMENT'S NAME: draft
+% TYPE: BOOLEAN
+% POSSIBLE VALUES = {`F' OR `T'}
+% DEFAULT VALUE = F
+% EXPLANATION: THIS OPTIONAL SUB-ARGUMENT CONTROLS WETHER, AFTER IMAGES [IN THE LIST PROVIDED IN THE OBLIGATORY PARAMETER] GET EMBEDDED AS THEY ARE IF ITS VALUE IS `=F', AND BLANK BOXES WITH THE NAME OF EACH IMAGE INSTEAD GET 		                                 EMBEDDED IF ITS VALUE IS `=T'. PLEASE TAKE INTO ACCOUNT THAT THIS FUNCTION CONTAINS DECISION ALGORITHMS THAT USE DIFFERENT CRITERIA TO DECIDE, AFTER THE FIRST COMPILATION RUN, WHETHER IT SHOULD ALERT THE USER BY MEANS OF A CLEAR                                          CONSOLE MESSAGE THAT IT IS A VERY GOOD IDEA TO CHANGE THIS SUB-ARGMUENT'S VALUE TO `=T' FOR ALL SUBSEQUENT COMPILATION RUNS, AND ONLY CHANGE BACK THIS SUB-ARGUMENT'S VALUE BACK TO `=F' FOR THE FINAL COMPILATION RUN. THEREFORE, IT MUST BE NOTICED THAT THE USER HAS BEEN GIVEN POWER TO MANIPULATE THIS DECISION, OF COURSE.
+%
+% ***********************************************************************************************************************************************************************************************
+%
+% II)
+% SUB-ARGUMENT'S NAME: size
+% TYPE: STRING
+% POSSIBLE VALUES = {WIDTH;HEIGHT;{`F' OR `T'}} [THE THIRD OPTION WITHIN THE `{}' OF THIS SUB-ARGUMENT IS A BOOLEAN VALUE WHICH DETERMINES WHETER THE LATEX EMBEDDED IMAGE COMMAND `keepaspectratio' IS SET TO `=T' OR TO `=F' ]
+% DEFAULT VALUES =  {0.8\linewidth;\textheight;T}
+% EXPLANATION: THIS OPTIONAL SUB-ARGUMENT CONTROLS THE SCALE WIDTH AND THE SCALE HEIGHT THAT GLOBALLY, WITH THE SAME VALUES, APPLY TO EACH AND EVERY IMAGE IN THE IMAGE LIST FED TO THIS FUNCTION; ADDITIONALY, THE USER CAN, IN THE THITD POSITION OF THE `{ }' OF THIS SUB ARGUMENT, SPECIFY `T' IF HE WISHES LATEX IMAGE EMBEDDING OPTION `keepaspectratio' TO BE SET TO `T' [AND THAT'S ITS DEFAULT VALUE], SOMETHING WHICH IS COMPLETELY ADVISED TO IF BOTH HEIGHT AND WIDTH HAVE BEEN SPECIFIED, BECAUSE THIS DECISION WILL FORCE EVERY SINGLE IMAGE IN THE LIST FED TO THIS FUNCTION TO SCALE TO FIT WITHIN BOTH BOUNDS [WIDTH AND HEIGHT], RATIO INTACT; IF THE USER DECIDES TO INPUT `F' IN THE  IN THE THITD POSITION OF THE `{ }' OF THIS SUB ARGUMENT, THE  LATEX IMAGE EMBEDDING OPTION `keepaspectratio' TO BE SET TO `F', WHICH IS SOMETHNG NOT RECOMMENDABLE TO DO AT ALL IF BOTH HEIGHT AND WIDTH HAVE BEEN SPECIFIED, BECAUSE THIS WILL CAUSE EACH IMAGE TO STRETCH TO FILL BOTH EXACTLY, DISTORTING IT UNLESS THE TWO HAPPEN TO ALREADY MATCH ITS NATIVE RATIO. CLAUDE, I DON'T KNOW WHAT HAPPENS IF THE USER SPECIFIES ONLY ONE OR ONLY TWO OF THE OPTIONS WITHIN THE `{ }' OF THIS SUB-ARGGUMENT; I SUSPECT IT MIGHT BRING A LOT OF TROUBLE; PLEASE ANALYZE AND FIX ACCORDINGLY.
+%
+% ************************************************************************************************************************************************************************************
+%
+% III)
+% SUB-ARGUMENT'S NAME: columns
+% TYPE: INTEGER
+% POSSIBLE VALUES = {1 TO INFINITY} [THEORETICALLY]
+% DEFAULT VALUE = 3
+% EXPLANATION: THIA AUB-ARGUMENT RECEIVES AN INTEGER THAT DETERMINES, WHEN THE USER HAS INVOKED THIS FUNCTION WITH AN ''*'', HOW MANY IMAGES, MAXIMUM, MAY BE PLACED HORIZONTALLY SIDE BY SIDE IN EACH RESULTING ROW OF IMAGES. IT IS IMPORTANT TO NOTICE THAT THIS FUNCTION HAS AN ALGORITHM TO VERIFY A PRIORI IF THE INTEGER PROVIDED BY THE USER MAKJES SENSE OR NOT. CLAUDE, PLEASE VERIFY THE GUARD ALGORITHM I JUST DESCRIBED, ADD A MECHANISM TO CONVERT THE INPUT NUMBER INTO AN INTEGER IF A NUMBER WITH DECIMALS IS GIVEN AS AN ARGUMENT; ALSO CLAUDEM, IT CONCERNS ME WHATMIGHT HAPPEN IF THE USER INVOKES THIS FUNCTION WITHOUT AN ''*'' AND YET PROVIDED A VALUE FOR THIS SUB-ARGUMENT, EVEN THOUGH THIS SUB-ARGUMENT HAS BEEN CODED TO HAVE A DEFAULT VALUE OF `columns=3'; CLAUDE, PLEASE ANALYZE AND FIX IF NECESSARY. ALSO, CLAUSE, I WOULD LIKE TO KNOW IF THERE IS AN OPTION TO DISABLE THIS SUB-ARGUMENT IF THE USER INVOKES THIS FUNCTION WITHOUT AN ''*'' .
+%
+% ************************************************************************************************************************************************************************************
+%
+% IV)
+% SUB-ARGUMENT'S NAME: numbering
+% TYPE: BOOLEAN
+% POSSIBLE VALUES = {`F' OR `T'}
+% DEFAULT VALUE = T
+% EXPLANATION: THIS SUB-ARGUMENT IS A BOOLEAN GATE INTEGRATED DIRECTLY INTO THE DISPATCH LOGIC OF THIS FUNCTION [WITHIN THE PARSING LAYER OF THE LATEX3 DATA-TYPE FRAMEWORK {EXPL3}, AN ARGUMENT OR EXPANSION ASSIGNED A VALUE OF "T" ACTS AS A TRUE STATE GATE, WHILE "F" ACTS AS A FALSE STATE GATE]. WHEN THE SYSTEM EVALUATES THE MACRO STATE AND DETERMINES THAT "NUMBERING=T", IT AUTOMATICALLY UN-GATES AND INTERFACES DIRECTLY WITH THE CORE ENGINE LAYERS OF LATEX CAPTION AND COUNTER MANAGEMENT SYSTEM ENGINE ARCHITECTURES. WHEN PASSED AS "F", THE PIPELINE ROUTIVELY INSERTS THE EMBEDDED IMAGE USING UNNUMBERED ENVIRONMENT ROUTINES, [OFTEN] TRANSLATING TO INTERNAL WRAPPERS EQUIVALENT TO CAPTION-SUPPRESSED COUNTERS OR \CAPTION* EXECUTION BLOCKS VIA THE DEPENDENT `CAPTION' STYLESHEET FRAMEWORK. THIS TOTALLY PREVENTS THE COMPILER FROM INCREMENTING THE CAPTION STEP INDEX, LEAVING THE LOGICAL MANIFEST STRUCTURALLY COMPACT WITHOUT A SERIAL IDENTIFIER; ID EST, THE IMAGES ARE EMBEDED WITHIN THE DOCUMENT WITHOUT NUMBERING. WHEN PASSED AS "T", THE LOGIC HALTS ITS SUPPRESSION LOOP AND TURNS ON SYSTEM COMPILATION RULES THAT FORCE LATEX TO TRACK AND RENDER AN EXPLICIT STRING IDENTIFIER PREFIX FOR THE DEPLOYED IMAGE PIPELINE, WHICH PLAINLY MEANS THAT THE IMAGES EMBEDDED IN THE DOCUMENT BY THIS FUNCTION WILL BE NUMBERED ACCORDING TO THE COUNTER[S] AND CONVENTIONS ALREADY IN PLACE IN THE PREVIOUS NUMBERED IMAGES WITHIN THE DOCUMENT.
+%
+% ************************************************************************************************************************************************************************************
+%
+% V
+% SUB-ARGUMENT'S NAME: captions
+% TYPE: STRING
+% POSSIBLE VALUES = {[''CAPTION_1''];[''CAPTION_2'];[''CAPTION_3'']; ;[''CAPTION_5'];...;[''CAPTION_N'']} [HERE, THE NUMBER OF AN IMAGE {AND OF ITS CORRESPONDING CAPTION} IS HTE POSITION OF THE IMAGE IN THE LIST FED TO THIS FUNCTION {THE FIRST POSITION OF THE LIST IS 1}; `N' IS AN INTEGER THAT REPRESENTS UP TO WHICH IMAGE THE USER WISHED TO ADD A CAPTION]
+% DEFAULT VALUE = {}
+% EXPLANATION: IF THE USER WISHES NO CAPTIONS AT ALL, HE JUST NEEDS TO NOT INVOKE THIS SUB-ARGUMENT OR TO INVOKE IT AS `captions={ }. IF THE USER WANTS A SINGLE GLOBAL CAPTION FOR ALL THE IMAGES PROVIDED IN THE IMAGES LIST, HE NEEDS TO PROVIDE A SINGLE STRING, SURROUNDED BY QUOTATION MARKS ['' ''] WITHIN THIS SUB ARGUMENT'S `{ }' [IT DOESN'T MATTER IF THIS SINGLE STRING OF TEXT CONTAINS COMMAS OR '';''], AND THIS SINGLE GLOBAL CAPTION SHALL BE PLACED BELOW THE LAST IMAGE THAT GETS EMBEDDED. IF THE USER WISHES CAPTIONS FOR AT LEAST SOME OF THE IMAGES PROVIDED IN THE IMAGES LIST, HE JUST NEEDS TO WRITE A STRING, SURROUNDED BY QUOTATION MARKS ['' ''] AND SURROUNDED BY SQUARE BRACKETS, WITHIN THIS SUB ARGUMENT'S `{ }', AND THEN USE '';' TO SEPARATE EACH [''CAPTION_J']. EACH WILL BE PLACED UNDER THE IMAGE NUMBER J [THE IMAGE'S NUMBER CORRESPONDS TO ITS POSITION WITHIN THE IMAGES LIST FED TO THIS FUNCTION; THE FIRST POSITION OF THE LIST IS 1]. IF THE USER WISHES TO LEAVE ANY OF THE IMAGES, WITHIN THE LIST OF IMAGES FED TO THIS FUNCTION, WITHOUT A CAPTION, HE JUST NEEDS TO PROVIDE A BLANK [] OR SIMPLY LLEAVE A BLANK BETWEEN THE ``;'', IN THE POSITIONS CORRESPONDING TO THE NUMBERS OF THE IMAGES WHERE THE USER WHISHES NO CAPTION. IF THERE IS A TOTAL NUMBER OF `T' IMAGES WITHIN THE LIST OF IMAGES FED TO THIS FUNCTION, THE USER MAY PROVIDE CAPTIONS UP TO THE T CAPTION [''CAPTION_T']; HOWEVER, LETTING N BE ANY INTEGER SUCH THAT N <= T, THE USER IS ALLOWED TO PROVIDE CAPTIONS ALL THE WAY UP TO THE N IMAGE, THAT IS, HE MAY PROVIDE CAPTIONS UP TO THE N CAPTION [''CAPTION_N']. THIS FUNCTION HAS ALGORITHS TO GUARD FROM THE POSSIBLE ERROR OF THE USER INPUTING MORE CAPTIONS THAN THE TOTAL NUMBER OF IMAGES WITHIN THE IMAGES LIST FED TO THIS FUNCTION, AND TO ALERT THE USER ACCORDINGLY. CLAUDE, PLEASE ANALYZE, OPTIMIZE AND, IF NECESSARY, FIX.
+%
+% ************************************************************************************************************************************************************************************
+%
+%  VI)
+% SUB-ARGUMENT'S NAME: pdfpages
+% TYPE: STRING
+% POSSIBLE VALUES = {PAGE_X_PDF1,PAGE_Y_PDF1,...,PAGE_Z_PDF1;PAGE_X_PDF2,PAGE_Y_PDF2,...,PAGE_Z_PDF2;...;PAGE_X_PDFN,PAGE_Y_PDFN,...,PAGE_Z_PDFN} [WHERE `N' IS THE TOTAL AMOUNT OF DETCDTED PDF FILES WITHIN THE LIST OF IMAGES FED TO THIS FUNCTION]
+% DEFAULT VALUE = {}
+% EXPLANATION: THE USER INPUTS THE PAGES OF EACH PDF HE WISHES TO EMBEDD WITHIN THE DOCUMENT, BY MEANS OF THIS FUNCTION, BY GIVING THE PAGE NUMBERS OF THE MULTIPAGED PDF, AND WITH A COMMA SEPARATING EACH NUMBER, WITHIN THE SUB-ARGUMENT'S `{ }'; IT IS NOT NECESSARY FOR THE LIST OF PAGES, FOR A GIVEN PDF, TO BE SPECIFIED IN ANY PARTICULAR ORDER. THEN, THE USER DOES THE SAME FOR THE REST OF PDF'S WITHIN THE LIST OF IMAGES FED TO THIS FUNCTION. THE USER MUST SEPARATE WITH A '';'' THE GROUPS OF [COMMA-SEPARATED] PAGE NUMBER LIST OF EACH PDF. LET `T' BE THE TOTAL NUMBER OF PDF'S  WITHIN THE LIST OF IMAGES FED TO THIS FUNCTION; FORM A SUB-LIST MADE UP ONLY OF THE PDF'S WITHIN THE LIST OF IMAGES FED TO THIS FUNCTION AND LET `J' BE THE INDEX [POSITION] OF ANY PDF WITHIN THIS JUT DEFINED SUB-LIST; AND LET `N' BE AN INTEGER SUCH THAT N <= T. THE J GROUP OF PAGE NUMBERS CORRESPONDS TO THE PDF IN THE J POSITION WITHIN THE JUST DEFINED PDF'S SUB-LIST. THE USER MAY SPECIFY PAGES GROUPS UP TO THE T GROUP, OR HE CAN SPECIFY PAGES GROUPS UP TO THE N GROUP OF PAGE NUMBERS. IF THE USER WISHES TO OMIT EMBEDDING THE PAGES OF ANY GIVEN PDF, HE JUST NEEDS TO LEAVE A BLANK WITHIN THE SPEARATING '';' IN THE POSITION OF THE SUB-ARGUMENT'S `{ }' WHICH CORRESPONDS TO THE NUMBER ¨POSITION IN THE SUB-LIST] OF THAT SPECIFIC PDF.
+% CLAUDE: PLEASE VERIFY ALL THE MECHANISMS DESCRIBED. VERIFY THE ALGORITHMS CODED TO AVOID ERRORS SUCH AS THE USER SPECIFYING INEXISTING PAGES FOR A GIVEN PDF, OR THE USER PROVIDING MORE COMMA-SEPARATED PAGE NUMBERS GROUPS THAN THE TOTAL AMOUNT OF PDF'S WITHIN THE LIST OF IMAGES FED TO THIS FUNCTION. PLEASE IMPLEMENT A GUARD TO MANAGE THE SITUATION WHERE THE USER PROVIDES ANY NON INTEGER NUMBER AS AN ARGUMENT. AND THE MOST IMPORTANT THING: IMPLEMENT AN ALGORITHM WITHIN THIS FUNCTION WICH DISPLAYS THE JUST-DEFINED EXCLUSIVELY PDF'S SUB-LIST TO THE USER, SO HE MAY PROVIDE THE COMMA-SEPARATED PAGES NUMBERS ACCORDINGLY.
+%
+% ************************************************************************************************************************************************************************************
+
+\NewDocumentCommand{\InsertImages}{ s m o }{%   SIDE NOTE: I ADDED AN  ''%'' RIGHT NEXT TO THIS FUNCTION'S OPENING CURLY BRACKET BECAUSE I SAW MANY LATEX FUNCTIONS ONLINE DEFINED THIS WAY; HOWEVER, I WOULD LIKE TO KNOW THE REASON FOR THIS. NOTICE I DECIDED TO NOT INCLUDE IT IN THE DEFINITION OF THE ''\REGISTERCHAPTERPATHS' FUNCTION, RIGHT NEXT TO THE OPENING CURLY BRACKET OF ITS BODY, AND THAT FUNCTION STILL WORKS JUST FINE..........
+
+% HERE I DEFONE THAT THE  OPTIONAL SUB-ARGUMENTS ARE ORDER AND POSITION INDEPENDENT [THEY ONLY DEPEND ON BEING SUMMONED BY NAMES JUST PROVIDED ABOVE, IN ACCORDANCE TO THE DICTIONARY ENTRIES
+  \IfValueT{#3}{ \keys_set:nn { circuitnacho } { #3 } }
+
+  %  I WANTED TO DEFINE WEELL THAT THE SUB-ARGUMENT `draft' CAN HAVE ONLY `F' OR `T' AS VALUES, BUT I DIDN'T KNOW HOW TO CODE SUCH AN INSTRUCTION; THIS IS COURTESY OF GOOGLE'S FREE AI
+  \str_if_eq:VnF \l_cn_draft_tl { T } {
+    \str_if_eq:VnF \l_cn_draft_tl { F } {
+      \tl_set:Nn \l_cn_draft_tl { F }
+    }
+  }
+
+% ================================================================================
+% HANDLING OF THE OBLIGATORY PARAMETER: ID EST, HANDLING OF THE STRING LIST OF IMAGES
+%============================================================================
+
+  \seq_gclear:N \g_cn_images_seq
+  \seq_gset_split:Nnn \g_cn_images_seq { , } { #2 }
+  \int_gadd:Nn \g_cn_total_images_int { \seq_count:N \g_cn_images_seq }
+  
+  \seq_set_split:NnV \l_tmpa_seq { ; } \l_cn_size_tl
+  \seq_pop_left:NN \l_tmpa_seq \l_cn_parsed_width_tl
+  \seq_pop_left:NN \l_tmpa_seq \l_cn_parsed_height_tl
+  \seq_pop_left:NN \l_tmpa_seq \l_cn_parsed_keep_tl
+  \str_if_eq:VnTF \l_cn_parsed_keep_tl { T }
+    { \tl_set:Nn \l_cn_parsed_keep_tl { true } }
+    { \tl_set:Nn \l_cn_parsed_keep_tl { false } }
+
+  \bool_gset_false:N \g_cn_pdf_overflow_bool
+  \bool_gset_false:N \g_cn_pdf_missing_spec_bool
+  \bool_gset_false:N \g_cn_pdf_excess_blocks_bool
+  \bool_gset_false:N \g_cn_excess_captions_bool
+  \bool_gset_false:N \g_cn_invalid_ext_bool
+  \bool_gset_false:N \g_cn_column_math_bool
+  \tl_gclear:N \g_cn_diagnostic_manifest_tl
+
+  % ===================================================================================================================================================
+  % THIS IS THE PART THAT CONTAINS THE ALGORITHMS THAT ASSES WETHER TO WARN THE USER OR NOT ABOUT THE CONVENINECE OF SETTING `draft=T' FOR SUBSEQUENT COMPILATION RUNS BEFORE THE FINAL ONE 
+  % =================================================================================================================================================
+  
+  \bool_set_false:N \l_tmpa_bool
+  \int_compare:nT { \value{page} > \c_cn_max_page_threshold_int } { \bool_set_true:N \l_tmpa_bool }
+  \int_compare:nT { \seq_count:N \g_cn_images_seq > \c_cn_max_local_batch_int } { \bool_set_true:N \l_tmpa_bool }
+  \int_compare:nT { \g_cn_total_images_int > \c_cn_max_global_images_int } { \bool_set_true:N \l_tmpa_bool }
+
+  \bool_if:NT \l_tmpa_bool {
+    \str_if_eq:VnT \l_cn_draft_tl { F } {
+      \msg_warning:nn { circuitnacho } { complexity-warning }
+    }
+  }
+
+  % ===================================================================
+  % PREEMPTIVE LOGIC GUARDS WHICH CAUSE HARD HALTS AND STOP THE COMPILATION RUN
+  % ===================================================================
+  
+
+  \IfBooleanT{#1}{
+    \int_compare:nT { \l_cn_cols_int > \seq_count:N \g_cn_images_seq } {
+      \bool_gset_true:N \g_cn_column_math_bool
+    }
+  }
+
+
+  \seq_clear:N \l_cn_captions_seq
+  \str_if_in:NnT \l_cn_captions_tl { [ } {
+    \seq_set_split:NnV \l_cn_captions_seq { ; } \l_cn_captions_tl
+  }
+  \int_compare:nT { \seq_count:N \l_cn_captions_seq > \seq_count:N \g_cn_images_seq } {
+    \bool_gset_true:N \g_cn_excess_captions_bool
+  }
+
+  % ===================================================================
+  % PDF EXTENSION IN IMAGE NAME AND MULTI PAGED PDF'S HANDLER
+  % ===================================================================
+  
+  \seq_gclear:N \g_cn_resolved_layout_seq
+  \int_set:Nn \l_cn_pdf_index_int { 0 }
+  % BUGFIX (Claude): splitting an EMPTY tl by ";" produces a sequence with
+  % ONE (empty-string) item in expl3, not zero -- confirmed by direct test.
+  % Left as \seq_set_split:NnV alone, this falsely counts as "1 PDF routing
+  % block provided" even when pdfpages was never given at all, which then
+  % compares as "excess" against the 0 actual multi-page PDFs found below
+  % and hard-halts on documents that never touch PDFs. Guard explicitly:
+  \tl_if_empty:NTF \l_cn_pdfpages_tl
+    { \seq_clear:N \l_cn_pdf_blocks_seq }
+    { \seq_set_split:NnV \l_cn_pdf_blocks_seq { ; } \l_cn_pdfpages_tl }
+
+  \seq_map_inline:Nn \g_cn_images_seq {
+  
+    \seq_set_split:Nnn \l_tmp_ext_seq { . } { ##1 }
+    \seq_pop_right:NN \l_tmp_ext_seq \l_cn_ext_tl
+    \tl_set:Ne \l_cn_ext_tl { \str_lowercase:n { \l_cn_ext_tl } }
+    
+    \bool_set_false:N \l_tmpb_bool
+    \clist_map_inline:nn { pdf, png, jpg, jpeg } {
+      \str_if_eq:VnT \l_cn_ext_tl { ####1 } { \bool_set_true:N \l_tmpb_bool }
+    }
+    \bool_if:NF \l_tmpb_bool {
+      \bool_gset_true:N \g_cn_invalid_ext_bool
+      \tl_gput_right:Nx \g_cn_diagnostic_manifest_tl {
+        \noexpand\\ \hspace{1em} \bullet ~ \texttt{##1} ~ \noexpand\textbf{[INVALID~EXTENSION:~\l_cn_ext_tl]}
+      }
+    }
+
+    \IfFileExists{##1} {
+      \str_if_eq:eeTF { \l_cn_ext_tl } { pdf } {
+        \graphics_get_pagecount:nN { ##1 } \l_cn_pagecount_tl
+        
+        \int_compare:nTF { \tl_use:N \l_cn_pagecount_tl > 1 } {
+          \int_incr:N \l_cn_pdf_index_int
+          \int_compare:nTF { \l_cn_pdf_index_int <= \seq_count:N \l_cn_pdf_blocks_seq } {
+            \tl_set:Ne \l_tmpb_tl { \seq_item:Nn \l_cn_pdf_blocks_seq { \l_cn_pdf_index_int } }
+            \seq_set_split:Nnn \l_cn_tmp_pages_seq { , } { \l_tmpb_tl }
+            
+            \seq_map_inline:Nn \l_cn_tmp_pages_seq {
+              \int_compare:nTF { ####1 > \tl_use:N \l_cn_pagecount_tl } {
+                \bool_gset_true:N \g_cn_pdf_overflow_bool
+                \tl_gput_right:Nx \g_cn_diagnostic_manifest_tl {
+                  \noexpand\\ \hspace{1em} \bullet ~ \noexpand\textbf{[OVERFLOW]} ~ \texttt{##1} ~ \noexpand\textit{(Req:~####1,~Max:~\tl_use:N \l_cn_pagecount_tl)}
+                }
+              } {
+                \seq_gput_right:Nx \g_cn_resolved_layout_seq { {##1}{####1} }
+              }
+            }
+          } {
+            \bool_gset_true:N \g_cn_pdf_missing_spec_bool
+            \tl_gput_right:Nx \g_cn_diagnostic_manifest_tl {
+              \noexpand\\ \hspace{1em} \bullet ~ \texttt{##1} ~ \noexpand\textbf{[Missing~routing~for~PDF~pos~\int_use:N \l_cn_pdf_index_int]}
+            }
+          }
+        } {
+          \seq_gput_right:Nn \g_cn_resolved_layout_seq { {##1}{1} }
+        }
+      } {
+        \seq_gput_right:Nn \g_cn_resolved_layout_seq { {##1}{1} }
+      }
+    } {
+      \seq_gput_right:Nn \g_cn_resolved_layout_seq { {##1}{MISSING} }
+    }
+  }
+
+
+  \int_compare:nT { \seq_count:N \l_cn_pdf_blocks_seq > \l_cn_pdf_index_int } {
+    \bool_gset_true:N \g_cn_pdf_excess_blocks_bool
+  }
+
+  % ===================================================================
+  % MECHANISM THAT HALST THE COMPILATION RUN IN CASE OF CERTAIN ERRORS
+  % ========================================================================
+  
+  \bool_if:nTF { 
+    \g_cn_column_math_bool || \g_cn_excess_captions_bool || 
+    \g_cn_invalid_ext_bool || \g_cn_pdf_overflow_bool || 
+    \g_cn_pdf_missing_spec_bool || \g_cn_pdf_excess_blocks_bool 
+  } {
+    \begin{figure}[H]
+      \centering \setlength{\fboxrule}{2pt}
+      \fcolorbox{red!80!black}{white}{
+        \begin{minipage}{0.95\linewidth}
+          \vspace{1em}\centering\color{red!80!black}\bfseries\sffamily
+          [CRITICAL~ENGINEERING~GUARD~TRIGGERED]\\ \vspace{0.8em}
+          \normalfont\small\color{black}\flushleft
+          The~compilation~was~forcefully~halted~due~to~the~following~rule~violations:\vspace{0.5em}
+          
+          \bool_if:NT \g_cn_column_math_bool { \\ \hspace{1em} \bullet ~ \textbf{[MATH~ERROR]}~Requested~\int_use:N \l_cn_cols_int~columns,~but~only~provided~\int_use:N \l_tmpa_int~images. }
+          \bool_if:NT \g_cn_excess_captions_bool { \\ \hspace{1em} \bullet ~ \textbf{[CAPTION~MISMATCH]}~More~captions~provided~than~images. }
+          \bool_if:NT \g_cn_pdf_excess_blocks_bool { \\ \hspace{1em} \bullet ~ \textbf{[EXCESS~PDF~ROUTING]}~Provided~more~semicolon~sets~in~pdfpages~than~total~PDFs~detected. }
+          
+          \g_cn_diagnostic_manifest_tl
+          \vspace{1em}
+        \end{minipage}
+      }
+    \end{figure}
+    \msg_error:nn { circuitnacho } { hard-halt-error }
+    % BUGFIX (Claude): \xspace \use_none:nnnnnnnnn removed here. It tries to
+    % consume 9 more argument groups from the input stream to "skip past"
+    % remaining content -- but there's no 9 more groups, so it keeps eating
+    % forward through the rest of the actual document, including
+    % \end{document} itself, until the file runs out ("Runaway argument?").
+    % It's also simply unnecessary: this whole block is already the TRUE
+    % branch of \bool_if:nTF below -- the FALSE branch (normal layout) can
+    % only run when this one doesn't, so nothing extra is needed to stop it.
+  } {
+    
+    % ===================================================================
+    % LAYOUT
+    % ===================================================================
+    
+    \begin{figure}[H]
+      \centering
+
+      \int_set:Nn \l_tmpa_int { \seq_count:N \g_cn_resolved_layout_seq }
+      
+      \seq_map_indexed_inline:Nn \g_cn_resolved_layout_seq {
+        \tl_set:Ne \l_tmpa_tl { \tl_head:n { ##2 } }
+        \tl_set:Ne \l_tmpb_tl { \tl_tail:n { ##2 } }
+
+        % Illegal Character Validation Guard (CATCODE SAFE)
+        \bool_set_false:N \l_tmpb_bool
+        \exp_args:Nno \str_if_in:nnT { \l_tmpa_tl } { \c_space_tl } { \bool_set_true:N \l_tmpb_bool }
+        \str_if_in:nnT { \l_tmpa_tl } { _ } { \bool_set_true:N \l_tmpb_bool }
+        \exp_args:Nno \str_if_in:nnT { \l_tmpa_tl } { \c_percent_str } { \bool_set_true:N \l_tmpb_bool }
+        \exp_args:Nno \str_if_in:nnT { \l_tmpa_tl } { \c_hash_str } { \bool_set_true:N \l_tmpb_bool }
+
+        \bool_if:NT \l_tmpb_bool {
+          \setlength{\fboxrule}{2pt}
+          \fcolorbox{red!50!black}{white}{
+            \begin{minipage}{0.95\linewidth}
+              \vspace{1em}\centering\color{red!50!black}\bfseries\sffamily
+              [ILLEGAL~CHARACTER~IN~FILENAME]\\ \vspace{0.8em}
+              \normalfont\small\color{black} Unsafe~string:~~\texttt{\l_tmpa_tl} \vspace{1em}
+            \end{minipage}
+          }
+          \msg_error:nn { circuitnacho } { hard-halt-error }
+          % BUGFIX (Claude): \xspace \use_none:nnnnnnnnn removed here too --
+          % same problem as the outer guard, but worse in a loop: it doesn't
+          % just eat the rest of the document, it eats the rest of THIS
+          % \seq_map_indexed_inline:Nn call's own body, corrupting every
+          % remaining image in the list, not just this one. expl3 has no
+          % simple "skip to next loop iteration" -- the correct pattern
+          % (used below) is to wrap the rest of THIS image's own processing
+          % in \bool_if:NF \l_tmpb_bool {...}, so it's simply skipped for
+          % this one image while the loop continues normally to the next.
+        }
+
+        \bool_if:NF \l_tmpb_bool {
+        \str_if_eq:nnTF { \l_tmpb_tl } { MISSING }
+          {
+            \setlength{\fboxrule}{1.5pt}
+            \fcolorbox{red}{white}{
+              \begin{minipage}[c][3cm][c]{ \l_cn_parsed_width_tl }
+                \centering \color{red}\bfseries [Missing~Image:\ \texttt{\l_tmpa_tl}]
+              \end{minipage}
+            }
+          }
+          {
+            \str_if_eq:VnTF \l_cn_draft_tl { T }
+              {
+                \setlength{\fboxrule}{1pt}
+                \fcolorbox{black}{gray!10}{
+                  \begin{picture}(0,0)
+                    \put(0,0){\makebox(0,0)[c]{\small\ttfamily [Draft:~\l_tmpa_tl~(P.~\l_tmpb_tl)]}}
+                  \end{picture}%
+                  \phantom{\includegraphics[width=\l_cn_parsed_width_tl, height=\l_cn_parsed_height_tl, keepaspectratio=\l_cn_parsed_keep_tl, page=\l_tmpb_tl]{\l_tmpa_tl}}
+                }
+              }
+              {
+                \includegraphics[width=\l_cn_parsed_width_tl, height=\l_cn_parsed_height_tl, keepaspectratio=\l_cn_parsed_keep_tl, page=\l_tmpb_tl]{\l_tmpa_tl}
+              }
+          }
+
+        \label{fig:\l_tmpa_tl _ \l_tmpb_tl}
+
+        \int_compare:nT { ##1 <= \seq_count:N \l_cn_captions_seq } {
+          \tl_set:Ne \l_tmpc_tl { \seq_item:Nn \l_cn_captions_seq { ##1 } }
+
+          \tl_remove_all:Nn \l_tmpc_tl { [ }
+          \tl_remove_all:Nn \l_tmpc_tl { ] }
+          \tl_if_empty:NF \l_tmpc_tl {
+            \str_if_eq:VnTF \l_cn_numbering_tl { T }
+              { \caption{\l_tmpc_tl} }
+              { \caption*{\l_tmpc_tl} }
+          }
+        }
+
+        \int_compare:nT { ##1 < \l_tmpa_int } {
+          \IfBooleanTF{#1}
+            {
+              \int_compare:nTF { \int_mod:nn { ##1 } { \l_cn_cols_int } == 0 }
+                { \ \nopagebreak \vspace{1.5em} }
+                { \hfill }
+            }
+            {
+              \ \nopagebreak \vspace{2.0em}
+            }
+        }
+        } % end \bool_if:NF \l_tmpb_bool -- closes the "skip this image if its filename was illegal" guard
+      }
+    \end{figure}
+    \xspace
+  }
+}
+
+% I SAY THE SAME I SAID AT THE END OF THE BODY OF THE PREVIOUS FUNCTION: I ONLY KNOW THIS PIECE OF CODE CLOSES WHAT THE COMMAND '\EXPSYNTAXON'' OPENED AT THE VERY BEGINNING OF THIS ''\INSERTIMAGES'' FUNCTION'S BODY AND DEFINITION. PLEASE EXPAIN, CLAUDE.
+\ExplSyntaxOff

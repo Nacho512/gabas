@@ -1,0 +1,4 @@
+*.log
+*.synctex(busy)
+*.synctex.gz
+.claude/
