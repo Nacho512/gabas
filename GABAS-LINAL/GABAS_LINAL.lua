@@ -4,7 +4,7 @@ local EPSILON = 1e-9
 -- COMPLEX NUMBERS
 -- A Complex value is a table {re=..., im=...} with a metatable implementing
 -- +, -, *, /, unary -, ==, and tostring. Because Mat_mul/Mat_sum/Mat_sub/
--- Scalar_mul/Dot/Trace/Determinant/Rank/Inverse/Solve are all written using
+-- Scalar_mul/Vdot/VTrace/Determinant/Rank/Inverse/Solve are all written using
 -- plain +, -, *, / on their entries (no math.* calls baked in), they gain
 -- complex-number support "for free" through these operators -- Lua looks up
 -- __add/__sub/__mul/__div on whichever operand is a table, and each
@@ -298,9 +298,9 @@ local function T(matriz)
     return C
 end
 
-local function Trace(matriz)
+local function VTrace(matriz)
     local rows, cols = #matriz, #matriz[1]
-    assert(rows == cols, "Trace: matrix must be square.")
+    assert(rows == cols, "VTrace: matrix must be square.")
     local sum = 0
     for i = 1, rows do
         sum = sum + matriz[i][i]
@@ -312,8 +312,8 @@ end
 -- tables of row-tables. This is the bilinear (non-conjugated) dot product;
 -- for the Hermitian inner product on complex vectors, conjugate one side
 -- first with Conjugate().
-local function Dot(v1, v2)
-    assert(#v1 == #v2, "Dot: vectors must have the same length.")
+local function Vdot(v1, v2)
+    assert(#v1 == #v2, "Vdot: vectors must have the same length.")
     local sum = 0
     for i = 1, #v1 do
         sum = sum + v1[i] * v2[i]
@@ -321,7 +321,7 @@ local function Dot(v1, v2)
     return sum
 end
 
-local function Norm(v, p)
+local function VNorm(v, p)
     p = p or 2
     local sum = 0
     for i = 1, #v do
@@ -679,7 +679,7 @@ return {
     Complex = Complex, Is_complex = is_complex, Conjugate = Conjugate,
     Show_matrix = Show_matrix, Matrix = Matrix, Sequence = Sequence, Show_table = Show_table,
     Mat_mul = Mat_mul, Mat_sum = Mat_sum, Mat_sub = Mat_sub, Scalar_mul = Scalar_mul,
-    Eye = Eye, Zeroes = Zeroes, Random_mat = Random_mat, T = T, Trace = Trace,
-    Dot = Dot, Norm = Norm, Determinant = Determinant, Rank = Rank, Inverse = Inverse,
+    Eye = Eye, Zeroes = Zeroes, Random_mat = Random_mat, T = T, VTrace = VTrace,
+    Vdot = Vdot, VNorm = VNorm, Determinant = Determinant, Rank = Rank, Inverse = Inverse,
     Solve = Solve, Eigenvalues = Eigenvalues, Eigenvectors = Eigenvectors,
 }
