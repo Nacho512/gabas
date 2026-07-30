@@ -37,11 +37,20 @@
 \seq_new:N \l_auto_paths_seq
 \seq_new:N \l_img_names_seq
 \seq_new:N \l_img_captions_seq
+\seq_new:N \l_gabas_extra_paths_seq
+\tl_new:N \l_gabas_tmp_path_tl
 
 % =============================================================
 % AND HERE IS WHERE THE BOY FO THE ''\REGISTERCHAPTERPATHS' FUNCTIO ACTUALLY BEGINS. AS I HAVE ALREADY STATED, IT IS SPECIFIC TO MY CURRENT LATEX PROJECT, AND ACCORDING TO WHAT I READ ONLINE, THIS KIND OF FUNCTIONS ARE CALLED 'DYNAMIC PATH REGISTRATION FUNCTIONS'; I WOULD LOVE YOUR EXPLANATION ON THIS. IT IS NOTEWORTHY TO SAY THAT, IF I AM NOT MISTAKEN, ONCE MAIN.TEX LOADS THE  SADIKU-SOLUTIONS.STY MODUL [IN CASE YOU GREEN LIGHT ME TO INCLUDE THESE CODE AND FUNCTIONS WITHIN OUR  SADIKU-SOLUTIONS.STY MODULE] THIS FUNCTION ACTS AUTOMATICALLY, WITHOUT THE USER HAVING TO INVOKE IT. I CODED IT SO THAT IT HAS TO BE SUMMONED ONLY IN CASE YOU WANT TO VARY THE HARD CODED DEFAULT PARAMETER OF 10 [10 STANDS FOR THE 10 CHAPTERS WITHIN THE SADIKU'S SEFER AND WITHIN MY PROJECT].
 % =============================================================
-\NewDocumentCommand{\RegisterChapterPaths}{O{10}}
+% SECOND OPTIONAL ARGUMENT: LETS THE USER REGISTER ANY EXTRA CUSTOM FOLDER
+% PATH[S] [E.G. A FOLDER OUTSIDE THE HARDCODED CHAPTER NAMING PATTERN, LIKE
+% A DIFFERENT PROJECT'S IMAGE FOLDER] ON TOP OF THE AUTOMATIC CHAPTER FOLDERS
+% ABOVE. PASS ONE OR MORE PATHS, SEPARATED BY COMMAS. EACH PATH MUST:
+%  - USE FORWARD SLASHES "/" [EVEN ON WINDOWS: "C:/Users/..." NOT "C:\Users\..."]
+%  - END WITH A TRAILING "/"
+% USAGE: \RegisterChapterPaths[10][C:/Users/Dell/Desktop/PROGRAMMING-7/LUA-FOARTE/GABAS_LINAL/]
+\NewDocumentCommand{\RegisterChapterPaths}{O{10} O{}}
 {
   \seq_clear:N \l_auto_paths_seq
   
@@ -76,6 +85,20 @@
           }
       }
     } % DO YOU THINK THERE IS A BETTER AND MORE ORDERED WAY I MIGHT WORK WITH THE CURLY BRACKETS? THEY ARE NESTED AND ARE A SOURCE OF HORRIBLE LOGICAL ERRORS JUST AS IN JAVA OR IN C.
+
+  % REGISTRATION OF THE USER'S CUSTOM EXTRA PATH[S], IF ANY WERE PROVIDED.
+  \tl_if_empty:nF { #2 } {
+    \seq_clear:N \l_gabas_extra_paths_seq
+    \seq_set_split:Nnn \l_gabas_extra_paths_seq { , } { #2 }
+    \seq_map_inline:Nn \l_gabas_extra_paths_seq {
+      \tl_set:Nn \l_gabas_tmp_path_tl { ##1 }
+      \tl_trim_spaces:N \l_gabas_tmp_path_tl
+      \tl_if_empty:NF \l_gabas_tmp_path_tl {
+        \seq_put_right:NV \l_auto_paths_seq \l_gabas_tmp_path_tl
+      }
+    }
+  }
+
   \exp_args:NV \graphicspath \l_auto_paths_seq
 }
 
