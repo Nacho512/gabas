@@ -23,7 +23,7 @@
 % the rest ({2026/07/29}{1.0}{v0.1 ...}) was leftover text LaTeX tried to
 % typeset before \begin{document}, which is exactly what "Missing
 % \begin{document}" means. Fixed to the standard LaTeX2e form.
-\ProvidesPackage{gabas}[2026/07/29 v1.0 Simple multi-image insertion for Nacho's Sadiku project]
+\ProvidesExplPackage{gabas}{2026/07/29}{V0.2}{DESCRIPTION}
 
 \RequirePackage{graphicx}
 \RequirePackage{float}
@@ -199,6 +199,27 @@
   { The~`columns'~sub-argument~must~be~a~positive~whole~number,~but~you~entered~columns=#1,~which~is~zero,~negative,~or~a~fraction~of~a~column. }
 \msg_new:nnn { circuitnacho } { invalid-columns-non-integer }
   { The~`columns'~sub-argument~must~be~a~whole~number~(no~decimal~point),~but~you~entered~columns=#1. }
+% FEATURE (Claude): same reasoning as the two messages above -- the
+% pre-existing \g_cn_diagnostic_manifest_tl route for "INVALID EXTENSION"
+% was confirmed broken (crashes with "Undefined control sequence" via the
+% calc package the instant it actually prints; a standalone test with a
+% real bad-extension image reproduces this on totally unmodified code).
+% \msg_error is the proven-working alternative.
+\msg_new:nnn { circuitnacho } { invalid-extension }
+  { The~image~`#1'~has~an~unsupported~extension~(`.#2').~Allowed~extensions~are~pdf,~png,~jpg,~jpeg~and~eps~(case-insensitive). }
+% FEATURE (Claude): the illegal-character guard's own visual box tried to
+% show the offending filename via \texttt{\l_tmpa_tl} -- but a filename
+% flagged here is, BY DEFINITION, one that may contain an illegal
+% character, and if that character is a literal underscore (one of the
+% four this guard checks for), \texttt just tries to typeset a raw
+% catcode-8 subscript character in text mode, which is exactly what
+% "Missing $ inserted" means. Confirmed by testing "my_image.png"
+% straight through \InsertImages on unmodified code. \msg_error prints
+% the same raw filename to the console/log safely (also confirmed by a
+% standalone test) since it isn't asking TeX to typeset it as document
+% text.
+\msg_new:nnn { circuitnacho } { illegal-filename }
+  { The~image~name~`#1'~contains~an~illegal~character~(a~space,~underscore,~percent~sign,~or~hash)~and~was~skipped. }
 
 % AND THIS IS NO MORE THAN A SUBROUTINE TO USE THE INVISIBLE .AUX LATEX FILE IN ORDER TO KEEP A GLOBAL COUNTER AND TO KEEP A LOG OF THE IMAGES EMBEDDED, WHICH GROWS WITH EACH INSTANCE OF SUMMONING OF THIS `\INSERTIMAGES'' FUNCTION.
 \cs_if_exist:cTF { savedcompilationcounter }
@@ -554,15 +575,28 @@
     % the correct lowercased string.
     \tl_set:Ne \l_cn_ext_tl { \exp_args:No \str_lowercase:n \l_cn_ext_tl }
     
+    % FEATURE (Claude): added `eps` to the allowed extensions -- this
+    % package's load chain already pulls in epstopdf-base (visible in any
+    % compile log: "Redefining graphics rule for `.eps'"), which makes
+    % pdflatex auto-convert .eps to .pdf on the fly, so \includegraphics
+    % already handles .eps correctly; the extension check was just the one
+    % place not yet aware of it. Deliberately NOT adding more exotic
+    % formats (tiff, bmp, gif, ...): none of those work out of the box
+    % under plain pdflatex without extra conversion tools this package
+    % doesn't require elsewhere, so allowing them here would just move the
+    % failure from a clear "unsupported extension" message to a much more
+    % confusing \includegraphics error later. A flat clist membership
+    % check (rather than a full keys/dictionary structure) remains the
+    % right tool here: there's no per-extension metadata to carry, only
+    % "is this string in the allowed set," which is exactly what a clist
+    % is for.
     \bool_set_false:N \l_tmpb_bool
-    \clist_map_inline:nn { pdf, png, jpg, jpeg } {
+    \clist_map_inline:nn { pdf, png, jpg, jpeg, eps } {
       \str_if_eq:VnT \l_cn_ext_tl { ####1 } { \bool_set_true:N \l_tmpb_bool }
     }
     \bool_if:NF \l_tmpb_bool {
       \bool_gset_true:N \g_cn_invalid_ext_bool
-      \tl_gput_right:Nx \g_cn_diagnostic_manifest_tl {
-        \noexpand\\ \hspace{1em} \bullet ~ \texttt{##1} ~ \noexpand\textbf{[INVALID~EXTENSION:~\l_cn_ext_tl]}
-      }
+      \msg_error:nnxx { circuitnacho } { invalid-extension } { ##1 } { \l_cn_ext_tl }
     }
 
     % BUGFIX (Claude): \IfFileExists is a legacy LaTeX2e macro that dispatches
@@ -714,10 +748,10 @@
             \begin{minipage}{0.95\linewidth}
               \vspace{1em}\centering\color{red!50!black}\bfseries\sffamily
               [ILLEGAL~CHARACTER~IN~FILENAME]\\ \vspace{0.8em}
-              \normalfont\small\color{black} Unsafe~string:~~\texttt{\l_tmpa_tl} \vspace{1em}
+              \normalfont\small\color{black} See~the~console/log~for~the~exact~file~name. \vspace{1em}
             \end{minipage}
           }
-          \msg_error:nn { circuitnacho } { hard-halt-error }
+          \msg_error:nnx { circuitnacho } { illegal-filename } { \l_tmpa_tl }
           % BUGFIX (Claude): \xspace \use_none:nnnnnnnnn removed here too --
           % same problem as the outer guard, but worse in a loop: it doesn't
           % just eat the rest of the document, it eats the rest of THIS
