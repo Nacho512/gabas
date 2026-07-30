@@ -21,6 +21,8 @@
 local Core = require("GABAS-LINAL.modules.core")
 local Complex = require("GABAS-LINAL.modules.complex")
 
+-- NACHO: THIS MODULE IS INDISPENSABLE FOR THE ALN [ALGEBRA LINEAL] MODULE AND IN ESPECIAL FOR THE TENSOR MODULE.
+
 -- sign = -1 for the forward transform's e^{-i*2*pi*k*n/N} twiddle factors,
 -- +1 for the inverse transform's e^{+i*2*pi*k*n/N} ones; IFFT additionally
 -- divides every output by N afterwards, which this helper deliberately

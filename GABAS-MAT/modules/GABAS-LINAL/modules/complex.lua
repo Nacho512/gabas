@@ -20,6 +20,7 @@
 -- private and duplicated here (same value, 1e-9) is a small, honest
 -- tradeoff to keep the dependency graph a clean one-way arrow: Core depends
 -- on Complex, never the reverse.
+
 local DIV_EPSILON = 1e-9
 
 local Complex_mt = {}

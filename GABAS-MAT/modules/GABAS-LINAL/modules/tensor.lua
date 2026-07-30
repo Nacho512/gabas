@@ -4,6 +4,10 @@
 -- bottoms out at a leaf value.
 local Complex = require("GABAS-LINAL.modules.complex")
 
+-- NOTE (Nacho): FFT will likely become indispensable here once tensor-domain
+-- operations are added, but nothing in this file needs it yet -- not
+-- required until something in this module actually calls into it.
+
 -- Shared guard for the whole *_tensor family (Tensor, Zeroes_tensor,
 -- Eye_tensor, Random_tensor): `dims` must explicitly list every dimension
 -- size, with at least 3 entries -- 2 or fewer belongs to the matrix-only
