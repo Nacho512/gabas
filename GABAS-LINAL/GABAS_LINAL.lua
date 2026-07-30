@@ -4,7 +4,7 @@ local EPSILON = 1e-9
 -- COMPLEX NUMBERS
 -- A Complex value is a table {re=..., im=...} with a metatable implementing
 -- +, -, *, /, unary -, ==, and tostring. Because Mat_mul/Mat_sum/Mat_sub/
--- Scalar_mul/Vdot/VTrace/Determinant/Rank/Inverse/Solve are all written using
+-- Scalar_mul/Vdot/VTrace/MDet/Rank/Inverse/Solve are all written using
 -- plain +, -, *, / on their entries (no math.* calls baked in), they gain
 -- complex-number support "for free" through these operators -- Lua looks up
 -- __add/__sub/__mul/__div on whichever operand is a table, and each
@@ -330,9 +330,9 @@ local function VNorm(v, p)
     return sum ^ (1 / p)
 end
 
-local function Determinant(matrix)
+local function MDet(matrix)
     local rows, cols = #matrix, #matrix[1]
-    assert(rows == cols, "Determinant: matrix must be square.")
+    assert(rows == cols, "MDet: matrix must be square.")
 
     -- LU decomposition (Gaussian elimination) with partial pivoting.
     local lu = copy_matrix(matrix)
@@ -680,6 +680,6 @@ return {
     Show_matrix = Show_matrix, Matrix = Matrix, Sequence = Sequence, Show_table = Show_table,
     Mat_mul = Mat_mul, Mat_sum = Mat_sum, Mat_sub = Mat_sub, Scalar_mul = Scalar_mul,
     Eye = Eye, Zeroes = Zeroes, Random_mat = Random_mat, T = T, VTrace = VTrace,
-    Vdot = Vdot, VNorm = VNorm, Determinant = Determinant, Rank = Rank, Inverse = Inverse,
+    Vdot = Vdot, VNorm = VNorm, MDet = MDet, Rank = Rank, Inverse = Inverse,
     Solve = Solve, Eigenvalues = Eigenvalues, Eigenvectors = Eigenvectors,
 }
