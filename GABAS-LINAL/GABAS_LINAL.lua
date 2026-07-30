@@ -1,5 +1,115 @@
 local EPSILON = 1e-9
 
+-- ===========================================================================
+-- COMPLEX NUMBERS
+-- A Complex value is a table {re=..., im=...} with a metatable implementing
+-- +, -, *, /, unary -, ==, and tostring. Because Mat_mul/Mat_sum/Mat_sub/
+-- Scalar_mul/Dot/Trace/Determinant/Rank/Inverse/Solve are all written using
+-- plain +, -, *, / on their entries (no math.* calls baked in), they gain
+-- complex-number support "for free" through these operators -- Lua looks up
+-- __add/__sub/__mul/__div on whichever operand is a table, and each
+-- metamethod promotes a plain number operand to Complex(x, 0) automatically.
+-- A matrix/vector with only plain-number entries is completely unaffected:
+-- the metamethods are never invoked and ordinary Lua number arithmetic runs.
+-- ===========================================================================
+
+local Complex_mt = {}
+Complex_mt.__index = Complex_mt
+
+local function is_complex(x)
+    return type(x) == "table" and getmetatable(x) == Complex_mt
+end
+
+local function Complex(re, im)
+    return setmetatable({re = re or 0, im = im or 0}, Complex_mt)
+end
+
+local function to_complex(x)
+    if is_complex(x) then return x end
+    assert(type(x) == "number", "Complex: expected a number or a Complex value.")
+    return Complex(x, 0)
+end
+
+function Complex_mt.__add(a, b)
+    a, b = to_complex(a), to_complex(b)
+    return Complex(a.re + b.re, a.im + b.im)
+end
+
+function Complex_mt.__sub(a, b)
+    a, b = to_complex(a), to_complex(b)
+    return Complex(a.re - b.re, a.im - b.im)
+end
+
+function Complex_mt.__mul(a, b)
+    a, b = to_complex(a), to_complex(b)
+    return Complex(a.re * b.re - a.im * b.im, a.re * b.im + a.im * b.re)
+end
+
+function Complex_mt.__div(a, b)
+    a, b = to_complex(a), to_complex(b)
+    local denom = b.re * b.re + b.im * b.im
+    assert(denom > EPSILON, "Complex: division by zero.")
+    return Complex((a.re * b.re + a.im * b.im) / denom, (a.im * b.re - a.re * b.im) / denom)
+end
+
+function Complex_mt.__unm(a)
+    return Complex(-a.re, -a.im)
+end
+
+function Complex_mt.__eq(a, b)
+    return a.re == b.re and a.im == b.im
+end
+
+function Complex_mt.__tostring(a)
+    if a.im == 0 then
+        return tostring(a.re)
+    end
+    local sign = a.im < 0 and "-" or "+"
+    return tostring(a.re) .. sign .. tostring(math.abs(a.im)) .. "i"
+end
+
+function Complex_mt.conj(a)
+    return Complex(a.re, -a.im)
+end
+
+function Complex_mt.abs(a)
+    return math.sqrt(a.re * a.re + a.im * a.im)
+end
+
+function Complex_mt.arg(a)
+    return math.atan(a.im, a.re)
+end
+
+-- Magnitude that works on both plain numbers and Complex values -- used
+-- everywhere a pivoting/convergence/near-zero check needs "how big is this",
+-- regardless of whether the entries are real or complex.
+local function cabs(x)
+    if is_complex(x) then
+        return x:abs()
+    end
+    return math.abs(x)
+end
+
+-- Elementwise conjugate. Accepts either a vector (flat table) or a matrix
+-- (table of row-tables); plain-number entries pass through unchanged.
+local function Conjugate(x)
+    local C = {}
+    if type(x[1]) == "table" and not is_complex(x[1]) then
+        for i = 1, #x do
+            local row, row_c = x[i], {}
+            for j = 1, #row do
+                row_c[j] = is_complex(row[j]) and row[j]:conj() or row[j]
+            end
+            C[i] = row_c
+        end
+    else
+        for i = 1, #x do
+            C[i] = is_complex(x[i]) and x[i]:conj() or x[i]
+        end
+    end
+    return C
+end
+
 local function copy_matrix(matriz)
     local C = {}
     for i = 1, #matriz do
@@ -13,13 +123,13 @@ local function copy_matrix(matriz)
 end
 
 -- Searches rows [k, last_row] of column `col` for the entry with the largest
--- absolute value (classic partial pivoting: picking the largest magnitude,
--- not just the first non-zero one, keeps the elimination numerically stable).
+-- magnitude (classic partial pivoting: picking the largest magnitude, not
+-- just the first non-zero one, keeps the elimination numerically stable).
 -- Returns the row index, or nil if every candidate is ~0 (singular column).
 local function find_pivot_row(mat, k, last_row, col)
     local best_row, best_val = nil, EPSILON
     for i = k, last_row do
-        local v = math.abs(mat[i][col])
+        local v = cabs(mat[i][col])
         if v > best_val then
             best_row, best_val = i, v
         end
@@ -32,7 +142,10 @@ local function Show_matrix(matriz)
     for i = 1, m do
         local row = matriz[i]
         for j = 1, n do
-            io.write(row[j], "\t")
+            -- tostring() (not io.write's own number coercion) so Complex
+            -- entries render via __tostring; io.write itself only accepts
+            -- plain strings/numbers and would error on a Complex table.
+            io.write(tostring(row[j]), "\t")
         end
         print()
     end
@@ -196,7 +309,9 @@ local function Trace(matriz)
 end
 
 -- Vectors are plain flat tables {v1, v2, ...}, unlike matrices, which are
--- tables of row-tables.
+-- tables of row-tables. This is the bilinear (non-conjugated) dot product;
+-- for the Hermitian inner product on complex vectors, conjugate one side
+-- first with Conjugate().
 local function Dot(v1, v2)
     assert(#v1 == #v2, "Dot: vectors must have the same length.")
     local sum = 0
@@ -210,7 +325,7 @@ local function Norm(v, p)
     p = p or 2
     local sum = 0
     for i = 1, #v do
-        sum = sum + math.abs(v[i]) ^ p
+        sum = sum + cabs(v[i]) ^ p
     end
     return sum ^ (1 / p)
 end
@@ -243,7 +358,7 @@ local function Determinant(matrix)
         end
     end
 
-    if math.abs(lu[rows][rows]) <= EPSILON then
+    if cabs(lu[rows][rows]) <= EPSILON then
         return 0
     end
 
@@ -316,7 +431,7 @@ local function Inverse(matriz)
             if i ~= k then
                 local row_i = aug[i]
                 local factor = row_i[k]
-                if factor ~= 0 then
+                if cabs(factor) > EPSILON then
                     for j = k, 2 * n do
                         row_i[j] = row_i[j] - factor * pivot_row_data[j]
                     end
@@ -364,7 +479,7 @@ local function Solve(A, b)
 
         for i = k + 1, n do
             local factor = aug[i][k] / aug[k][k]
-            if factor ~= 0 then
+            if cabs(factor) > EPSILON then
                 for j = k, n + 1 do
                     aug[i][j] = aug[i][j] - factor * aug[k][j]
                 end
@@ -384,8 +499,11 @@ local function Solve(A, b)
     return x
 end
 
--- Modified Gram-Schmidt QR decomposition of a square matrix (Q orthonormal,
--- R upper triangular). Internal helper for Eigenvalues/Eigenvectors.
+-- Modified Gram-Schmidt QR decomposition of a REAL square matrix (Q
+-- orthonormal, R upper triangular). Internal helper for Eigenvalues/
+-- Eigenvectors. Deliberately real-only: correct QR for complex matrices
+-- needs a conjugated ("Hermitian") Gram-Schmidt, which isn't implemented
+-- here -- Eigenvalues/Eigenvectors reject Complex-entry input accordingly.
 local function qr_decompose(mat)
     local n = #mat
 
@@ -441,16 +559,31 @@ local function qr_decompose(mat)
     return Q, R
 end
 
+local function assert_real_matrix(matriz, fn_name)
+    for i = 1, #matriz do
+        for j = 1, #matriz[i] do
+            assert(not is_complex(matriz[i][j]),
+                fn_name .. ": Complex-entry input matrices are not supported (the QR " ..
+                "iteration only runs in real arithmetic); Complex eigenvalues can still " ..
+                "occur in the *output* for a real matrix with a complex-conjugate pair.")
+        end
+    end
+end
+
 -- Unshifted QR algorithm: iterating A <- R*Q (from A's QR decomposition)
--- converges the diagonal of A to its eigenvalues. This only works for real
--- eigenvalues -- there is no complex-number support here, so a matrix with
--- complex-conjugate eigenvalue pairs (rotation-like matrices, for instance)
--- will not converge and the returned "eigenvalues" will be inaccurate. It's
--- reliable for symmetric matrices and any matrix whose eigenvalues are all
--- real and of distinct magnitude.
+-- converges A towards a quasi-triangular (real Schur) form. Any diagonal
+-- entry whose subdiagonal neighbor vanished is a converged real eigenvalue.
+-- A 2x2 block that refuses to converge encodes a complex-conjugate
+-- eigenvalue pair; its two roots are extracted analytically via the
+-- quadratic formula on that block's trace/determinant (the same technique
+-- LAPACK-style real-Schur eigensolvers use), which is exact regardless of
+-- how far the QR iteration itself has converged. This is what actually
+-- resolves the old "won't converge for complex eigenvalues" limitation,
+-- without needing a complex-arithmetic QR implementation.
 local function Eigenvalues(matriz, max_iter, tol)
     local n = #matriz
     assert(n == #matriz[1], "Eigenvalues: matrix must be square.")
+    assert_real_matrix(matriz, "Eigenvalues")
     max_iter = max_iter or 500
     tol = tol or 1e-10
 
@@ -472,8 +605,28 @@ local function Eigenvalues(matriz, max_iter, tol)
     end
 
     local eigenvalues = {}
-    for i = 1, n do
-        eigenvalues[i] = A[i][i]
+    local i = 1
+    while i <= n do
+        if i < n and math.abs(A[i + 1][i]) > tol then
+            local a, b = A[i][i], A[i][i + 1]
+            local c, d = A[i + 1][i], A[i + 1][i + 1]
+            local tr = a + d
+            local det = a * d - b * c
+            local disc = tr * tr - 4 * det
+            if disc >= 0 then
+                local sq = math.sqrt(disc)
+                eigenvalues[i] = (tr + sq) / 2
+                eigenvalues[i + 1] = (tr - sq) / 2
+            else
+                local sq = math.sqrt(-disc)
+                eigenvalues[i] = Complex(tr / 2, sq / 2)
+                eigenvalues[i + 1] = Complex(tr / 2, -sq / 2)
+            end
+            i = i + 2
+        else
+            eigenvalues[i] = A[i][i]
+            i = i + 1
+        end
     end
     return eigenvalues
 end
@@ -481,12 +634,17 @@ end
 -- Same iteration as Eigenvalues, additionally accumulating the orthogonal
 -- factors Q_total = Q_1 * Q_2 * ... ; its columns converge to the
 -- eigenvectors. Rigorously guaranteed for symmetric matrices; treat the
--- vectors as approximate for general (non-symmetric) matrices. Returns
--- eigenvalues, and a matrix whose column k is the eigenvector for
--- eigenvalues[k].
+-- vectors as approximate for general (non-symmetric) matrices. For a matrix
+-- with a complex-conjugate eigenvalue pair, the corresponding two columns
+-- of Q_total only span the associated real 2-D invariant subspace, not the
+-- individual complex eigenvectors -- use Eigenvalues() for the (possibly
+-- complex) eigenvalues themselves; extracting the true complex eigenvectors
+-- for those pairs isn't implemented yet. Returns eigenvalues, and a matrix
+-- whose column k is the eigenvector for eigenvalues[k].
 local function Eigenvectors(matriz, max_iter, tol)
     local n = #matriz
     assert(n == #matriz[1], "Eigenvectors: matrix must be square.")
+    assert_real_matrix(matriz, "Eigenvectors")
     max_iter = max_iter or 500
     tol = tol or 1e-10
 
@@ -518,6 +676,7 @@ local function Eigenvectors(matriz, max_iter, tol)
 end
 
 return {
+    Complex = Complex, Is_complex = is_complex, Conjugate = Conjugate,
     Show_matrix = Show_matrix, Matrix = Matrix, Sequence = Sequence, Show_table = Show_table,
     Mat_mul = Mat_mul, Mat_sum = Mat_sum, Mat_sub = Mat_sub, Scalar_mul = Scalar_mul,
     Eye = Eye, Zeroes = Zeroes, Random_mat = Random_mat, T = T, Trace = Trace,
