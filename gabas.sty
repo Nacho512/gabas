@@ -55,6 +55,12 @@
 \seq_new:N \l_img_names_seq
 \seq_new:N \l_img_captions_seq
 
+% (Claude) used by \GlobalImageSource below.
+\ior_new:N \g_cn_globalsource_ior
+\iow_new:N \g_cn_globalsource_iow
+\tl_new:N \l_cn_globalsource_script_tl
+\tl_new:N \l_cn_globalsource_data_tl
+
 % =============================================================
 % AND HERE IS WHERE THE BOY FO THE ''\REGISTERCHAPTERPATHS' FUNCTIO ACTUALLY BEGINS. AS I HAVE ALREADY STATED, IT IS SPECIFIC TO MY CURRENT LATEX PROJECT, AND ACCORDING TO WHAT I READ ONLINE, THIS KIND OF FUNCTIONS ARE CALLED 'DYNAMIC PATH REGISTRATION FUNCTIONS'; I WOULD LOVE YOUR EXPLANATION ON THIS. IT IS NOTEWORTHY TO SAY THAT, IF I AM NOT MISTAKEN, ONCE MAIN.TEX LOADS THE  SADIKU-SOLUTIONS.STY MODUL [IN CASE YOU GREEN LIGHT ME TO INCLUDE THESE CODE AND FUNCTIONS WITHIN OUR  SADIKU-SOLUTIONS.STY MODULE] THIS FUNCTION ACTS AUTOMATICALLY, WITHOUT THE USER HAVING TO INVOKE IT. I CODED IT SO THAT IT HAS TO BE SUMMONED ONLY IN CASE YOU WANT TO VARY THE HARD CODED DEFAULT PARAMETER OF 10 [10 STANDS FOR THE 10 CHAPTERS WITHIN THE SADIKU'S SEFER AND WITHIN MY PROJECT].
 % =============================================================
@@ -102,6 +108,100 @@
 % ===========================================================================================
 \AddToHook{begindocument}{%
   \RegisterChapterPaths
+}
+
+% =====================================================================
+% \GLOBALIMAGESOURCE (Claude): the "actually universal" equivalent of
+% \RegisterChapterPaths requested in GABAS-LATEX-MODULE-CONTINUOUS-LOG.txt
+% ("I would like to develop a universal equivalent of this function,
+% which identifies all the image source folders within a LaTeX project
+% [even if such project is hosted on Overleaf]"). Instead of a
+% hard-coded chapter-numbering scheme, this walks the ENTIRE project
+% directory tree from the current compile directory (the project root,
+% both locally and on Overleaf) and auto-detects every folder that
+% contains at least one file with a recognized image extension -- the
+% same pdf/png/jpg/jpeg/eps set \insertimages itself accepts -- then
+% registers all of them via \graphicspath, exactly like
+% \RegisterChapterPaths does with its hard-coded list.
+%
+% TeX has NO primitive to list a directory's contents -- that's a hard
+% engine limitation, not an expl3 gap. The only way to do it is to
+% shell out. Confirmed on the user's own Overleaf project: shell-escape
+% (\write18) IS enabled there and DOES allow running python3 with no
+% extra package (the same mechanism already used for the OCR feature),
+% so this reuses it:
+%   1. Write a small python3 script to disk via \iow (TeX's own file
+%      writer -- this step needs no shell-escape at all).
+%   2. Run it with \sys_shell_now:x (a thin \write18 wrapper). It walks
+%      the project tree, prunes hidden/VCS/cache folders as it goes,
+%      finds every folder containing a matching image file, and writes
+%      one folder path per line to a plain-text data file. THIS step
+%      needs shell-escape.
+%   3. Read that data file back with \ior_str_map_inline:Nn, which reads
+%      each line as raw "str" content (not re-tokenized TeX/expl3 code)
+%      -- this sidesteps any catcode trouble from folder names
+%      containing "_" or other special characters.
+%
+% If shell-escape is off, or python3 isn't installed, step 2 silently
+% no-ops (pdfTeX's own \write18 behavior), so the data file is never
+% (re)created, step 3 finds nothing, and this falls back to registering
+% just the project root ("./"), with a console warning. KNOWN
+% LIMITATION: if an EARLIER compile successfully produced a data file
+% and a LATER compile then has shell-escape disabled, this will
+% silently reuse that stale data instead of warning -- deleting the old
+% file first would itself need shell-escape, so there is no fully
+% portable way to detect that specific case.
+%
+% NOT wired into \AddToHook{begindocument} the way \RegisterChapterPaths
+% is -- deliberately left as an explicit, opt-in call for now.
+% \RegisterChapterPaths is still what auto-registers paths on every
+% compile of the user's live SADIKU-solutions project; swapping the
+% automatic hook over to \GlobalImageSource should be a deliberate
+% choice made once it's been test-compiled there, not a silent side
+% effect of updating gabas.sty.
+% =====================================================================
+\msg_new:nnn { circuitnacho } { globalimagesource-no-scan }
+  { \string\GlobalImageSource~could~not~auto-detect~any~image~folders~(shell-escape~and/or~python3~may~be~unavailable~in~this~compile~environment).~Only~the~project~root~("./")~was~registered~as~an~image~source;~add~folders~manually~via~\string\graphicspath,~or~use~\string\RegisterChapterPaths~if~applicable. }
+
+\NewDocumentCommand{\GlobalImageSource}{ }
+{
+  \tl_set:Nx \l_cn_globalsource_script_tl { \jobname-gabas-scan.py }
+  \tl_set:Nx \l_cn_globalsource_data_tl   { \jobname-gabas-globalpaths.dat }
+
+  \iow_open:Nn \g_cn_globalsource_iow \l_cn_globalsource_script_tl
+  \iow_now:Nn \g_cn_globalsource_iow { import os }
+  \iow_now:Nn \g_cn_globalsource_iow { exts = {"pdf", "png", "jpg", "jpeg", "eps"} }
+  \iow_now:Nn \g_cn_globalsource_iow { excl = {".git", ".svn", "__pycache__"} }
+  \iow_now:Nn \g_cn_globalsource_iow { out = [] }
+  \iow_now:Nn \g_cn_globalsource_iow { for root, dirs, files in os.walk("."): }
+  \iow_now:Nn \g_cn_globalsource_iow { dirs[:] = [d for d in dirs if d not in excl and not d.startswith(".")] }
+  \iow_now:Nn \g_cn_globalsource_iow { hit = any(("." in n and n.rsplit(".", 1)[-1].lower() in exts) for n in files) }
+  \iow_now:Nn \g_cn_globalsource_iow { if root != "." and hit: out.append(root.replace(chr(92), "/") + "/") }
+  \iow_now:Nn \g_cn_globalsource_iow { out = sorted(set(out)) }
+  \iow_now:Nx \g_cn_globalsource_iow { fh = open("\l_cn_globalsource_data_tl", "w", encoding="utf-8") }
+  \iow_now:Nn \g_cn_globalsource_iow { fh.write(chr(10).join(out)) }
+  \iow_now:Nn \g_cn_globalsource_iow { fh.close() }
+  \iow_close:N \g_cn_globalsource_iow
+
+  \sys_shell_now:x { python3~\l_cn_globalsource_script_tl }
+
+  \seq_clear:N \l_auto_paths_seq
+  \seq_put_right:Nn \l_auto_paths_seq { ./ }
+
+  \exp_args:NV \file_if_exist:nTF \l_cn_globalsource_data_tl
+    {
+      \ior_open:Nn \g_cn_globalsource_ior \l_cn_globalsource_data_tl
+      \ior_str_map_inline:Nn \g_cn_globalsource_ior
+        {
+          \tl_if_empty:nF { ##1 } { \seq_put_right:Nn \l_auto_paths_seq { ##1 } }
+        }
+      \ior_close:N \g_cn_globalsource_ior
+    }
+    {
+      \msg_warning:nn { circuitnacho } { globalimagesource-no-scan }
+    }
+
+  \exp_args:NV \graphicspath \l_auto_paths_seq
 }
 
 % ALL I KNOW ABOUT THIS FINAL INSTRUCTION/COMMAND/SENTENCE [?] IS THAT, OUT OF COMMON SENSE, IT CLOSES WHAT THE COMMAND '\EXPSYNTAXON'' OPENED AT THE VERY BEGINNING OF THIS FUNCTION'S DEFINITION. PLEASE EXPAIN.
