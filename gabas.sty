@@ -25,7 +25,12 @@
 \RequirePackage{xparse}
 \RequirePackage{expl3}
 \RequirePackage{xcolor}
-\RequirePackage{l3graphics} % needed by \graphics_get_pagecount:nN, used below for multi-page PDF detection
+% BUGFIX (Claude): \RequirePackage{l3graphics} previously here does not
+% exist -- there is no such package, and no \graphics_get_pagecount:nN
+% function in any current l3kernel. This made the package fail to load
+% at all (Emergency stop before \InsertImages could ever run). The actual
+% page-count logic is now implemented locally, see \__cn_get_pagecount:nN
+% further below.
 \RequirePackage{pdfpages}
 
 % BECAUSE I WANTED MY NON TRIVIAL, REAL-LIFE USABLE AND ACTUALLLY USEFUL ''\INSRTIMAGES'' FUNCTION TO BE REALLY AGILE AND NOT HAVING TO SPECIFY EACH IMAGE FED TO HER THE IMAGE'S WHOLE PATH, AND BECAUSE I WANTED THIS \INSRTIMAGES FUNCTION TO BE ABLE TO RECEIVE, WITHOUT ANY PROBLEM, ANY IMAGE FROM ANY SOURCE FOLDER WITHIN MY LATEX PROJECT, I CODED THIS  ''\REGISTERCHAPTERPATHS' FUNCTION FIRST BEFORE PROCEEDING TO THE IMAGES FUNCTION EXERCISE. I COULD HAVE CODED THIS FUNCTION'S CODE WITHIN MY '\INSRTIMAGES'' FUNCTION, OR EVEN BETTER, I COULD HAVE INVOKED THIS  ''\REGISTERCHAPTERPATHS' FUNCTION WITHIN MY ''\INSRTIMAGES'' FUNCTION, BUT I REFRAINED FROM DOING SO BECAUSE I WANT MY ''\INSRTIMAGES'' FUNCTION, AS IMPERFECT AS IT IS NOW, TO BE A UNIVERSAL LATEX FUNCTION, AIMING AT A PROFESSIONAL LEVEL, AND MY ''\REGISTERCHAPTERPATHS' FUNCTION IS SPECIFIC TO MY CURRENT SAKIKU' SEFER SOLUTIONS LATEX PROKECT. HOWEVER, I WOULD LOVE YOU TO TEACH ME HOW TO CODE A FUNCTION SIMILAR TO THIS ''\REGISTERCHAPTERPATHS' FUNCTION THAT IS ACTUALLY UNIVERSAL AND WHICH A USER WHO EVENTUALLLY USES MY FUTURE LATEX PACKAGE, CAN USE ON OVERLEAF WITHOUT PROBLEMS AT ALL.
@@ -119,6 +124,10 @@
 \tl_new:N \l_cn_parsed_width_tl
 \tl_new:N \l_cn_parsed_height_tl
 \tl_new:N \l_cn_parsed_keep_tl
+\tl_new:N \l_cn_resolved_path_tl % (Claude) used by \__cn_get_pagecount:nN
+\tl_new:N \l_cn_global_caption_tl % (Claude) holds a single, non-bracketed global caption
+\tl_new:N \l_cn_safe_display_tl % (Claude) see \__cn_safe_display:n
+\tl_new:N \l_cn_underscore_tl % (Claude) a real catcode-8 "_" token, see \__cn_safe_display:n
 
 \bool_new:N \g_cn_pdf_overflow_bool
 \bool_new:N \g_cn_pdf_missing_spec_bool
@@ -126,6 +135,8 @@
 \bool_new:N \g_cn_excess_captions_bool
 \bool_new:N \g_cn_invalid_ext_bool
 \bool_new:N \g_cn_column_math_bool
+\bool_new:N \g_cn_pdf_invalid_page_bool % (Claude) non-integer page number in pdfpages=
+\bool_new:N \l_cn_global_caption_bool % (Claude) captions= given without any "[...]" -> single global caption
 
 % THESE ARE HARDCODED NUMBERS WHICH THE USER CAN'T VARY AND WHICH I CHOSE BASED UPON MY OWN CRITERIUM AND EXPIERIENCE TO ACT AS THRESHOLDS TO HELP IN THE LOGIC OF THE ''COMPILE-AS-IMAGES-ARE-OR-SUGGEST-DRAFT'' DECISION ALGORITHMS THAT DECIDE WHETHEER IT IS BETTER, AFTER THE FIRST COMPILING RUN, TO INFORM THE USER VIA A CONSOLE MESSAGE THAT IN THE THE SUBSEQUENT COMPILATION RUNS, HE SHOULD CHANGE THE STATUS TO ''DRAFT=T'' AND THUS THE REAL IMAGES ARE NOT EMBEDDED WITHIN THE DOCUMENT IN THE FOLLOWING COMPILATION RUNS UNTIL THE FINL  COMPILATION RUN. THE USER HAS BEEN GIVEN POWER TO MANIPULATE THIS DECISION, OD COURSE.
 \int_const:Nn \c_cn_max_page_threshold_int { 21 }
@@ -168,6 +179,112 @@
   captions  .initial:n = {},
   pdfpages  .tl_set:N  = \l_cn_pdfpages_tl,
   pdfpages  .initial:n = {}
+}
+
+% =====================================================================
+% PAGE-COUNT HELPER (Claude): replaces the non-existent
+% \graphics_get_pagecount:nN / l3graphics.sty. \includegraphics already
+% resolves bare filenames through \graphicspath (see \RegisterChapterPaths
+% above), but the raw pdfTeX primitive \pdfximage does NOT -- it only
+% searches the plain TeX/kpathsea path, so a bare "MYFILE.pdf" living in
+% one of the chapter image folders would fail with "cannot find image
+% file" if handed to \pdfximage directly (confirmed by testing). So this
+% first resolves the file against the same \l_auto_paths_seq directory
+% list \RegisterChapterPaths already builds and feeds to \graphicspath,
+% then hands the resolved path to \pdfximage and reads back the page
+% count via the read-only \pdflastximagepages integer. pdfTeX engine only
+% (matches this package's existing pdftex.def / pdfpages dependency).
+% =====================================================================
+\cs_new_protected:Npn \__cn_get_pagecount:nN #1#2 {
+  \tl_clear:N \l_cn_resolved_path_tl
+  \seq_map_inline:Nn \l_auto_paths_seq {
+    \tl_if_empty:NT \l_cn_resolved_path_tl {
+      % BUGFIX (Claude): \IfFileExists (LaTeX2e kernel) internally stores
+      % its own branch content as the BODY of a real \def'd kernel scratch
+      % macro at some point in its processing -- so ANY leftover, not-yet-
+      % substituted "##"/"#" placeholder anywhere in its condition OR its
+      % branches derails that internal \def ("Illegal parameter number in
+      % definition of \reserved@a", then cascading token corruption).
+      % Isolated testing proved this happens even with a bare, unused
+      % "##1" sitting in a branch, and separately with a "##1"/"#1" mix
+      % in the condition -- confirmed root cause via a minimal
+      % reproduction, independent of correct/incorrect hash-doubling.
+      % Fix: use expl3's OWN native file-existence conditional,
+      % \file_if_exist:nTF (from l3kernel) instead. It is a proper
+      % \prg_new_conditional:Npnn-based conditional -- no kernel \def
+      % involved -- and correctly respects \graphicspath/\input@path just
+      % like \IfFileExists (confirmed side-by-side). Verified with a full
+      % isolated reproduction of this exact nested seq_map_inline
+      % structure: zero errors, correct substitution at every level.
+      \file_if_exist:nTF { ##1 #1 } { \tl_set:Nn \l_cn_resolved_path_tl { ##1 #1 } } { }
+    }
+  }
+  \tl_if_empty:NT \l_cn_resolved_path_tl { \tl_set:Nn \l_cn_resolved_path_tl { #1 } }
+  \pdfximage { \tl_use:N \l_cn_resolved_path_tl }
+  \tl_set:Nx #2 { \the \pdflastximagepages }
+}
+
+% =====================================================================
+% PAIR-SPLIT HELPER (Claude): \g_cn_resolved_layout_seq stores each item as
+% two adjacent brace groups, {filename}{page-or-MISSING}, and the LAYOUT
+% loop below used to pull them apart with
+% \tl_set:Ne \l_tmpa_tl {\tl_head:n{##2}} / \tl_set:Ne \l_tmpb_tl
+% {\tl_tail:n{##2}} -- \tl_head:n correctly strips the braces off the
+% FIRST group, but \tl_tail:n returns the SECOND group with its braces
+% still attached as literal tokens (confirmed: \tl_tail:n on
+% "{fakea.png}{MISSING}" yields the literal 9-token sequence "{MISSING}",
+% not the bare word). So \l_tmpb_tl never actually equalled the bare
+% string "MISSING", and the "is this image missing" check further below
+% always fell through to the FALSE case -- meaning a confirmed-missing
+% file was still sent through the real \includegraphics{...} call and
+% blew up. Re-expanding \tl_tail:n's result to strip that second brace
+% pair (e.g. via \tl_head:n{\tl_tail:n{##2}}) doesn't work either: its
+% output carries an internal protection wrapper that survives
+% \exp_args:No/\expandafter re-expansion (confirmed by \tl_show:N showing
+% \__kernel_exp_not:w left dangling). The robust fix sidesteps l3's
+% token-list head/tail semantics entirely: a plain two-parameter TeX
+% macro invoked directly on the two adjacent groups grabs each one as a
+% normal (fully debraced) macro argument, exactly like any
+% \macro{arg1}{arg2} call.
+% =====================================================================
+\cs_new_protected:Npn \__cn_split_pair:nn #1#2 {
+  \tl_set:Nn \l_tmpa_tl { #1 }
+  \tl_set:Nn \l_tmpb_tl { #2 }
+}
+
+% =====================================================================
+% SAFE-DISPLAY HELPER (Claude): the diagnostic boxes show arbitrary,
+% user-supplied filenames verbatim via \texttt{##1} / \texttt{\l_tmpa_tl}.
+% Filenames come from the user's OWN document (captured through
+% \InsertImages's normal "m" argument, under ordinary document catcodes,
+% NOT this file's \ExplSyntaxOn regime), so an underscore in one of them
+% is a genuine catcode-8 (subscript) character -- valid only in math
+% mode. Typesetting it directly in text (exactly what \texttt does)
+% throws "Missing $ inserted." the same way \bullet used to (confirmed:
+% \InsertImages{bad_name.png} alone reproduced this, and the box then
+% rendered "badname.png", silently dropping the underscore via TeX's
+% error recovery) -- ironic, since the [ILLEGAL CHARACTER IN FILENAME]
+% box exists specifically to report a filename like this one.
+% \str_lowercase:n-style "just hand it the token" tricks don't help
+% here: \l_cn_underscore_tl is a REAL catcode-8 "_" (built once below via
+% \char_generate:nn, independent of this file's own catcode-11 "_"), and
+% comparing each token of the filename against it -- swapping in a
+% genuine \_ (found catcode-independently via \use:c, since this file's
+% own "_" is the wrong catcode to spell \_ literally here) whenever it
+% matches -- sidesteps the far more fragile \scantokens-based approach
+% (tried first: broke \tl_gset:N.'s own internal expansion machinery
+% with "File ended while scanning..." errors). Verified error-free,
+% including in the log (no residual warnings), against a real
+% underscore-bearing filename.
+% =====================================================================
+\tl_set:Nx \l_cn_underscore_tl { \char_generate:nn { 95 } { 8 } }
+\cs_new_protected:Npn \__cn_safe_display:n #1 {
+  \tl_clear:N \l_cn_safe_display_tl
+  \tl_map_inline:nn { #1 } {
+    \tl_if_eq:nnTF { ##1 } { \tl_use:N \l_cn_underscore_tl }
+      { \tl_put_right:Ne \l_cn_safe_display_tl { \use:c { _ } } }
+      { \tl_put_right:Nn \l_cn_safe_display_tl { ##1 } }
+  }
 }
 
 % =====================================================================
@@ -255,7 +372,34 @@
 %
 % ************************************************************************************************************************************************************************************
 
-\NewDocumentCommand{\InsertImages}{ s m o }{%   SIDE NOTE: I ADDED AN  ''%'' RIGHT NEXT TO THIS FUNCTION'S OPENING CURLY BRACKET BECAUSE I SAW MANY LATEX FUNCTIONS ONLINE DEFINED THIS WAY; HOWEVER, I WOULD LIKE TO KNOW THE REASON FOR THIS. NOTICE I DECIDED TO NOT INCLUDE IT IN THE DEFINITION OF THE ''\REGISTERCHAPTERPATHS' FUNCTION, RIGHT NEXT TO THE OPENING CURLY BRACKET OF ITS BODY, AND THAT FUNCTION STILL WORKS JUST FINE..........
+% BUGFIX (Claude): the 3rd argument was declared as xparse type "o"
+% (optional, delimited by [ ]), but every usage in this file -- and every
+% usage tested -- passes the key=value options in { } instead. Since { }
+% never matches an "o"-type argument, xparse always concluded "not given",
+% silently fell back to every default, and left the whole {draft=...,
+% columns=..., captions=..., pdfpages=...} block sitting in the document
+% as literal leftover text (confirmed: it printed verbatim under each
+% figure in test output, and columns=N never overrode the default of 3
+% no matter what N was). Type "g" is xparse's optional-argument-delimited-
+% by-{ } variant -- the actual documented calling convention -- and is a
+% drop-in replacement for \IfValueT{#3} below (g also supports the
+% NoValue/IfValueT machinery when omitted).
+\NewDocumentCommand{\InsertImages}{ s m g }{%   SIDE NOTE: I ADDED AN  ''%'' RIGHT NEXT TO THIS FUNCTION'S OPENING CURLY BRACKET BECAUSE I SAW MANY LATEX FUNCTIONS ONLINE DEFINED THIS WAY; HOWEVER, I WOULD LIKE TO KNOW THE REASON FOR THIS. NOTICE I DECIDED TO NOT INCLUDE IT IN THE DEFINITION OF THE ''\REGISTERCHAPTERPATHS' FUNCTION, RIGHT NEXT TO THE OPENING CURLY BRACKET OF ITS BODY, AND THAT FUNCTION STILL WORKS JUST FINE..........
+
+% BUGFIX (Claude): l3keys' ".initial:n" only applies the FIRST time a key
+% is ever used in the whole document -- it does not re-apply before every
+% \keys_set:nn call. So a key left out of THIS call's { } simply keeps
+% whatever value a PREVIOUS \InsertImages call last set it to, instead of
+% reverting to its documented default (confirmed: calling captions={...}
+% once, then calling \InsertImages again with no captions= key at all,
+% left the old caption list active and wrongly triggered [CAPTION
+% MISMATCH] on the second, unrelated call). Reset every key to its
+% documented default before applying this call's own { } overrides, so
+% each \InsertImages invocation starts clean regardless of prior calls.
+  \keys_set:nn { circuitnacho } {
+    draft = F, size = {0.8\linewidth;\textheight;T}, columns = 3,
+    numbering = T, captions = {}, pdfpages = {}
+  }
 
 % HERE I DEFONE THAT THE  OPTIONAL SUB-ARGUMENTS ARE ORDER AND POSITION INDEPENDENT [THEY ONLY DEPEND ON BEING SUMMONED BY NAMES JUST PROVIDED ABOVE, IN ACCORDANCE TO THE DICTIONARY ENTRIES
   \IfValueT{#3}{ \keys_set:nn { circuitnacho } { #3 } }
@@ -289,7 +433,16 @@
   \bool_gset_false:N \g_cn_excess_captions_bool
   \bool_gset_false:N \g_cn_invalid_ext_bool
   \bool_gset_false:N \g_cn_column_math_bool
+  \bool_gset_false:N \g_cn_pdf_invalid_page_bool
   \tl_gclear:N \g_cn_diagnostic_manifest_tl
+  % BUGFIX (Claude): \l_tmpa_int is only ever set later, inside the FALSE
+  % (normal-layout) branch of the hard-halt check -- it was never set on
+  % the TRUE (hard-halt) branch at all, so the [MATH ERROR] bullet, which
+  % reads it, was displaying whatever value some unrelated earlier code
+  % (anywhere in the document, or a previous \InsertImages call) happened
+  % to leave in that shared scratch register. Set it explicitly here so
+  % the reported "images provided" count is always correct.
+  \int_set:Nn \l_tmpa_int { \seq_count:N \g_cn_images_seq }
 
   % ===================================================================================================================================================
   % THIS IS THE PART THAT CONTAINS THE ALGORITHMS THAT ASSES WETHER TO WARN THE USER OR NOT ABOUT THE CONVENINECE OF SETTING `draft=T' FOR SUBSEQUENT COMPILATION RUNS BEFORE THE FINAL ONE 
@@ -319,8 +472,20 @@
 
 
   \seq_clear:N \l_cn_captions_seq
-  \str_if_in:NnT \l_cn_captions_tl { [ } {
-    \seq_set_split:NnV \l_cn_captions_seq { ; } \l_cn_captions_tl
+  \tl_clear:N \l_cn_global_caption_tl
+  \bool_set_false:N \l_cn_global_caption_bool
+  % BUGFIX (Claude): the documented "single global caption" mode (captions=
+  % given as one plain string with no "[...]" entries -- placed once, below
+  % the last image) was never actually implemented anywhere in the LAYOUT
+  % code below; only the per-image [""];[""] bracket syntax worked. Detect
+  % and store that case here; it's printed after the image loop further down.
+  \tl_if_empty:NF \l_cn_captions_tl {
+    \str_if_in:NnTF \l_cn_captions_tl { [ } {
+      \seq_set_split:NnV \l_cn_captions_seq { ; } \l_cn_captions_tl
+    } {
+      \bool_set_true:N \l_cn_global_caption_bool
+      \tl_set_eq:NN \l_cn_global_caption_tl \l_cn_captions_tl
+    }
   }
   \int_compare:nT { \seq_count:N \l_cn_captions_seq > \seq_count:N \g_cn_images_seq } {
     \bool_gset_true:N \g_cn_excess_captions_bool
@@ -346,43 +511,105 @@
   
     \seq_set_split:Nnn \l_tmp_ext_seq { . } { ##1 }
     \seq_pop_right:NN \l_tmp_ext_seq \l_cn_ext_tl
-    \tl_set:Ne \l_cn_ext_tl { \str_lowercase:n { \l_cn_ext_tl } }
-    
+    % BUGFIX (Claude): \str_lowercase:n takes an n-type (UNEXPANDED) argument,
+    % so passing the bare variable \l_cn_ext_tl here handed it the literal
+    % control-sequence token, not its stored value "png"/"pdf"/etc. -- and
+    % since a control-sequence token isn't a letter to case-fold, it came
+    % back unchanged, so \l_cn_ext_tl ended up holding the literal text
+    % "\l_cn_ext_tl" instead of the real (lowercased) extension. Every
+    % single file then failed the pdf/png/jpg/jpeg comparison below and
+    % got flagged [INVALID EXTENSION], which forced the hard-halt guard box
+    % to fire on every \InsertImages call, always -- confirmed by isolated
+    % test (\typeout showed the literal control-sequence name, not "png").
+    % \exp_args:No expands the variable once before handing its actual
+    % value to the n-type function, exactly like the existing
+    % \exp_args:Nno usage further down for the illegal-character checks.
+    \tl_set:Ne \l_cn_ext_tl { \exp_args:No \str_lowercase:n \l_cn_ext_tl }
+
     \bool_set_false:N \l_tmpb_bool
     \clist_map_inline:nn { pdf, png, jpg, jpeg } {
       \str_if_eq:VnT \l_cn_ext_tl { ####1 } { \bool_set_true:N \l_tmpb_bool }
     }
     \bool_if:NF \l_tmpb_bool {
       \bool_gset_true:N \g_cn_invalid_ext_bool
+      % (Claude) see \__cn_safe_display:n above -- ##1 is a raw, user-
+      % supplied filename that may contain an underscore.
+      \__cn_safe_display:n { ##1 }
       \tl_gput_right:Nx \g_cn_diagnostic_manifest_tl {
-        \noexpand\\ \hspace{1em} \bullet ~ \texttt{##1} ~ \noexpand\textbf{[INVALID~EXTENSION:~\l_cn_ext_tl]}
+        \noexpand\\ \hspace{1em} \noexpand\textbullet ~ \texttt{\l_cn_safe_display_tl} ~ \noexpand\textbf{[INVALID~EXTENSION:~\l_cn_ext_tl]}
       }
     }
 
-    \IfFileExists{##1} {
+    % BUGFIX (Claude): \IfFileExists{cond}{TRUE}{FALSE} is a LaTeX-kernel
+    % macro that internally stores its branch content as the BODY of a
+    % real, kernel-level \def'd scratch macro at some point in its own
+    % processing -- so ANY leftover, not-yet-substituted "##"/"#" token
+    % anywhere in its condition or branches derails that internal \def
+    % ("Illegal parameter number in definition of \reserved@a", then
+    % cascading token corruption -- confirmed via isolated minimal
+    % reproduction, e.g. a bare unused "##1" sitting in a branch is
+    % already enough). The TRUE branch here contains a NESTED
+    % \seq_map_inline:Nn (over the requested pdfpages page list), whose
+    % own placeholder correctly needs "####1" -- there's no way to avoid
+    % leftover hash tokens sitting in \IfFileExists's branch here. Fix:
+    % use expl3's OWN native file-existence conditional,
+    % \file_if_exist:nTF (from l3kernel, built via the standard
+    % \prg_new_conditional:Npnn mechanism -- no kernel \def involved at
+    % all). Confirmed side-by-side to respect \graphicspath/\input@path
+    % exactly like \IfFileExists, and verified with a full isolated
+    % reproduction of this exact nested seq_map_inline structure: zero
+    % errors, correct substitution at every level.
+    \file_if_exist:nTF { ##1 } {
       \str_if_eq:eeTF { \l_cn_ext_tl } { pdf } {
-        \graphics_get_pagecount:nN { ##1 } \l_cn_pagecount_tl
+        \__cn_get_pagecount:nN { ##1 } \l_cn_pagecount_tl
         
         \int_compare:nTF { \tl_use:N \l_cn_pagecount_tl > 1 } {
           \int_incr:N \l_cn_pdf_index_int
           \int_compare:nTF { \l_cn_pdf_index_int <= \seq_count:N \l_cn_pdf_blocks_seq } {
             \tl_set:Ne \l_tmpb_tl { \seq_item:Nn \l_cn_pdf_blocks_seq { \l_cn_pdf_index_int } }
-            \seq_set_split:Nnn \l_cn_tmp_pages_seq { , } { \l_tmpb_tl }
+            % BUGFIX (Claude): same bug class as the extension/illegal-char/
+            % missing-check fixes elsewhere in this file -- "n" type does
+            % NOT expand \l_tmpb_tl, so it was handed the bare token, not
+            % its "1,2"-style value. Splitting a single unexpanded token
+            % (no literal commas in it) on "," trivially yields ONE item
+            % -- confirmed: \seq_count:N showed 1, not 2, and the loop's
+            % own placeholder printed the literal unexpanded value instead
+            % of a single page number, which then broke downstream
+            % arithmetic ("Undefined control sequence" cascade). "V" (use
+            % the variable's actual VALUE) is the correct type here,
+            % exactly like the working \seq_set_split:NnV usage above for
+            % \l_cn_pdfpages_tl.
+            \seq_set_split:NnV \l_cn_tmp_pages_seq { , } \l_tmpb_tl
             
             \seq_map_inline:Nn \l_cn_tmp_pages_seq {
-              \int_compare:nTF { ####1 > \tl_use:N \l_cn_pagecount_tl } {
-                \bool_gset_true:N \g_cn_pdf_overflow_bool
-                \tl_gput_right:Nx \g_cn_diagnostic_manifest_tl {
-                  \noexpand\\ \hspace{1em} \bullet ~ \noexpand\textbf{[OVERFLOW]} ~ \texttt{##1} ~ \noexpand\textit{(Req:~####1,~Max:~\tl_use:N \l_cn_pagecount_tl)}
+              % BUGFIX (Claude): a non-integer page number (e.g. "3.5" or
+              % "abc") fed straight into \int_compare:nTF below would throw
+              % a raw, unguarded expl3/TeX error instead of the intended
+              % diagnostic box -- guard it first with a plain-digits regex.
+              \regex_match:nnTF { \A [0-9]+ \z } { ####1 } {
+                \int_compare:nTF { ####1 > \tl_use:N \l_cn_pagecount_tl } {
+                  \bool_gset_true:N \g_cn_pdf_overflow_bool
+                  % (Claude) see \__cn_safe_display:n above
+                  \__cn_safe_display:n { ##1 }
+                  \tl_gput_right:Nx \g_cn_diagnostic_manifest_tl {
+                    \noexpand\\ \hspace{1em} \noexpand\textbullet ~ \noexpand\textbf{[OVERFLOW]} ~ \texttt{\l_cn_safe_display_tl} ~ \noexpand\textit{(Req:~####1,~Max:~\tl_use:N \l_cn_pagecount_tl)}
+                  }
+                } {
+                  \seq_gput_right:Nx \g_cn_resolved_layout_seq { {##1}{####1} }
                 }
               } {
-                \seq_gput_right:Nx \g_cn_resolved_layout_seq { {##1}{####1} }
+                \bool_gset_true:N \g_cn_pdf_invalid_page_bool
+                \__cn_safe_display:n { ##1 }
+                \tl_gput_right:Nx \g_cn_diagnostic_manifest_tl {
+                  \noexpand\\ \hspace{1em} \noexpand\textbullet ~ \noexpand\textbf{[INVALID~PAGE~NUMBER]} ~ \texttt{\l_cn_safe_display_tl} ~ \noexpand\textit{(Got:~"####1",~must~be~a~positive~integer)}
+                }
               }
             }
           } {
             \bool_gset_true:N \g_cn_pdf_missing_spec_bool
+            \__cn_safe_display:n { ##1 }
             \tl_gput_right:Nx \g_cn_diagnostic_manifest_tl {
-              \noexpand\\ \hspace{1em} \bullet ~ \texttt{##1} ~ \noexpand\textbf{[Missing~routing~for~PDF~pos~\int_use:N \l_cn_pdf_index_int]}
+              \noexpand\\ \hspace{1em} \noexpand\textbullet ~ \texttt{\l_cn_safe_display_tl} ~ \noexpand\textbf{[Missing~routing~for~PDF~pos~\int_use:N \l_cn_pdf_index_int]}
             }
           }
         } {
@@ -405,10 +632,11 @@
   % MECHANISM THAT HALST THE COMPILATION RUN IN CASE OF CERTAIN ERRORS
   % ========================================================================
   
-  \bool_if:nTF { 
-    \g_cn_column_math_bool || \g_cn_excess_captions_bool || 
-    \g_cn_invalid_ext_bool || \g_cn_pdf_overflow_bool || 
-    \g_cn_pdf_missing_spec_bool || \g_cn_pdf_excess_blocks_bool 
+  \bool_if:nTF {
+    \g_cn_column_math_bool || \g_cn_excess_captions_bool ||
+    \g_cn_invalid_ext_bool || \g_cn_pdf_overflow_bool ||
+    \g_cn_pdf_missing_spec_bool || \g_cn_pdf_excess_blocks_bool ||
+    \g_cn_pdf_invalid_page_bool
   } {
     \begin{figure}[H]
       \centering \setlength{\fboxrule}{2pt}
@@ -418,11 +646,27 @@
           [CRITICAL~ENGINEERING~GUARD~TRIGGERED]\\ \vspace{0.8em}
           \normalfont\small\color{black}\flushleft
           The~compilation~was~forcefully~halted~due~to~the~following~rule~violations:\vspace{0.5em}
-          
-          \bool_if:NT \g_cn_column_math_bool { \\ \hspace{1em} \bullet ~ \textbf{[MATH~ERROR]}~Requested~\int_use:N \l_cn_cols_int~columns,~but~only~provided~\int_use:N \l_tmpa_int~images. }
-          \bool_if:NT \g_cn_excess_captions_bool { \\ \hspace{1em} \bullet ~ \textbf{[CAPTION~MISMATCH]}~More~captions~provided~than~images. }
-          \bool_if:NT \g_cn_pdf_excess_blocks_bool { \\ \hspace{1em} \bullet ~ \textbf{[EXCESS~PDF~ROUTING]}~Provided~more~semicolon~sets~in~pdfpages~than~total~PDFs~detected. }
-          
+          %
+          % BUGFIX (Claude): the two blank source lines that used to sit here
+          % and below (before/after this bullet block) each got tokenized,
+          % at file-read time, into a stray \par -- LaTeX inserts \par for
+          % any blank (or whitespace-only) line, regardless of \ExplSyntaxOn.
+          % Since real paragraph text ("The compilation was...") had already
+          % started above, that \par actually ended the paragraph mid-box,
+          % forcing \\ below to restart a brand new one (paragraph-start
+          % machinery firing, i.e. \__para_handle_indent:) right before a
+          % lone \bullet -- which is a MATH-ONLY symbol. Used in text mode
+          % that reliably throws "Missing $ inserted." (recoverably the
+          % first time, but corrupting enough open/close math-mode state
+          % that it cascades into a hard failure on later \InsertImages
+          % calls). Fixed on both counts: \bullet -> \textbullet (the
+          % actual text-mode bullet glyph, needs no math mode at all) below,
+          % and blank lines replaced with comment-only lines (%) so no
+          % stray \par is ever generated here.
+          \bool_if:NT \g_cn_column_math_bool { \\ \hspace{1em} \textbullet ~ \textbf{[MATH~ERROR]}~Requested~\int_use:N \l_cn_cols_int~columns,~but~only~provided~\int_use:N \l_tmpa_int~images. }
+          \bool_if:NT \g_cn_excess_captions_bool { \\ \hspace{1em} \textbullet ~ \textbf{[CAPTION~MISMATCH]}~More~captions~provided~than~images. }
+          \bool_if:NT \g_cn_pdf_excess_blocks_bool { \\ \hspace{1em} \textbullet ~ \textbf{[EXCESS~PDF~ROUTING]}~Provided~more~semicolon~sets~in~pdfpages~than~total~PDFs~detected. }
+          %
           \g_cn_diagnostic_manifest_tl
           \vspace{1em}
         \end{minipage}
@@ -449,23 +693,48 @@
       \int_set:Nn \l_tmpa_int { \seq_count:N \g_cn_resolved_layout_seq }
       
       \seq_map_indexed_inline:Nn \g_cn_resolved_layout_seq {
-        \tl_set:Ne \l_tmpa_tl { \tl_head:n { ##2 } }
-        \tl_set:Ne \l_tmpb_tl { \tl_tail:n { ##2 } }
+        % BUGFIX (Claude): see \__cn_split_pair:nn above for why
+        % \tl_head:n/\tl_tail:n were replaced here.
+        \__cn_split_pair:nn ##2
 
         % Illegal Character Validation Guard (CATCODE SAFE)
+        % BUGFIX (Claude): all four checks here were checking the WRONG
+        % argument. \exp_args:Nno expands the *second* n-type argument of
+        % \str_if_in:nnT (the "o" position), not the first -- confirmed by
+        % direct test (\exp_args:Nno on a 2-arg function left arg 1 as a
+        % single unexpanded token and expanded arg 2 to 5 tokens). That
+        % means \l_tmpa_tl (arg 1, the filename) was NEVER expanded to its
+        % actual value; \str_if_in:nn was instead searching the bare
+        % control-sequence token's own detokenized name. A detokenized
+        % control WORD like \l_tmpa_tl prints with a trailing space and
+        % literally contains underscores in its own name ("l_tmpa_tl"), so
+        % the space- and underscore-checks matched on EVERY filename
+        % regardless of content (confirmed: "fakea.png" -- no space, no
+        % underscore -- was still flagged [ILLEGAL CHARACTER IN FILENAME]).
+        % Fix: expand arg 1 (\l_tmpa_tl) via the "o" position instead, using
+        % \exp_args:Noo throughout -- \c_space_tl/\c_percent_str/\c_hash_str
+        % need expanding to their actual character too, and re-expanding
+        % the already-literal "_" for the underscore check is harmless
+        % (expanding a non-expandable token is a no-op). Note
+        % \exp_args:Non is not a predefined l3kernel variant, hence :Noo
+        % for all four rather than mixing in a non-existent combination.
         \bool_set_false:N \l_tmpb_bool
-        \exp_args:Nno \str_if_in:nnT { \l_tmpa_tl } { \c_space_tl } { \bool_set_true:N \l_tmpb_bool }
-        \str_if_in:nnT { \l_tmpa_tl } { _ } { \bool_set_true:N \l_tmpb_bool }
-        \exp_args:Nno \str_if_in:nnT { \l_tmpa_tl } { \c_percent_str } { \bool_set_true:N \l_tmpb_bool }
-        \exp_args:Nno \str_if_in:nnT { \l_tmpa_tl } { \c_hash_str } { \bool_set_true:N \l_tmpb_bool }
+        \exp_args:Noo \str_if_in:nnT { \l_tmpa_tl } { \c_space_tl } { \bool_set_true:N \l_tmpb_bool }
+        \exp_args:Noo \str_if_in:nnT { \l_tmpa_tl } { _ } { \bool_set_true:N \l_tmpb_bool }
+        \exp_args:Noo \str_if_in:nnT { \l_tmpa_tl } { \c_percent_str } { \bool_set_true:N \l_tmpb_bool }
+        \exp_args:Noo \str_if_in:nnT { \l_tmpa_tl } { \c_hash_str } { \bool_set_true:N \l_tmpb_bool }
 
         \bool_if:NT \l_tmpb_bool {
+          % (Claude) see \__cn_safe_display:n above -- this box exists
+          % specifically to report filenames that may contain "_", so it
+          % needs this most of all.
+          \exp_args:No \__cn_safe_display:n \l_tmpa_tl
           \setlength{\fboxrule}{2pt}
           \fcolorbox{red!50!black}{white}{
             \begin{minipage}{0.95\linewidth}
               \vspace{1em}\centering\color{red!50!black}\bfseries\sffamily
               [ILLEGAL~CHARACTER~IN~FILENAME]\\ \vspace{0.8em}
-              \normalfont\small\color{black} Unsafe~string:~~\texttt{\l_tmpa_tl} \vspace{1em}
+              \normalfont\small\color{black} Unsafe~string:~~\texttt{\l_cn_safe_display_tl} \vspace{1em}
             \end{minipage}
           }
           \msg_error:nn { circuitnacho } { hard-halt-error }
@@ -481,12 +750,35 @@
         }
 
         \bool_if:NF \l_tmpb_bool {
-        \str_if_eq:nnTF { \l_tmpb_tl } { MISSING }
+        % BUGFIX (Claude): ":nnTF" compares \l_tmpb_tl's literal token
+        % (unexpanded) against "MISSING", which is never true regardless of
+        % the variable's actual stored value -- confirmed by direct test
+        % (:nnTF on a tl holding "MISSING" returned NOTEQUAL; the ":VnTF"
+        % form, which fetches the variable's real value, correctly
+        % returned EQUAL). This meant a genuinely missing image never took
+        % the "Missing Image" box branch and instead fell through to the
+        % real \includegraphics{\l_tmpa_tl} call for a file confirmed not
+        % to exist -- the very error that cascaded into the "Use of ???
+        % doesn't match its definition." pile-up seen when testing.
+        \str_if_eq:VnTF \l_tmpb_tl { MISSING }
           {
+            % (Claude) see \__cn_safe_display:n above
+            \exp_args:No \__cn_safe_display:n \l_tmpa_tl
             \setlength{\fboxrule}{1.5pt}
             \fcolorbox{red}{white}{
               \begin{minipage}[c][3cm][c]{ \l_cn_parsed_width_tl }
-                \centering \color{red}\bfseries [Missing~Image:\ \texttt{\l_tmpa_tl}]
+                % BUGFIX (Claude): bare "\ " (control space) is unreliable
+                % under \ExplSyntaxOn -- space has catcode 9 (ignored) there,
+                % so TeX doesn't read it as the one-char control sequence
+                % "\ " the way it would under normal catcodes; it silently
+                % swallows it and instead tries to build a control-sequence
+                % name starting at whatever real character comes next,
+                % leaving an undefined/empty control sequence in the token
+                % stream (confirmed: reproduces "Undefined control sequence"
+                % in isolation). \space (an ordinary multi-letter control
+                % word, unaffected by the catcode change) is the safe
+                % replacement.
+                \centering \color{red}\bfseries [Missing~Image:\space \texttt{\l_cn_safe_display_tl}]
               \end{minipage}
             }
           }
@@ -524,14 +816,21 @@
           \IfBooleanTF{#1}
             {
               \int_compare:nTF { \int_mod:nn { ##1 } { \l_cn_cols_int } == 0 }
-                { \ \nopagebreak \vspace{1.5em} }
+                { \space \nopagebreak \vspace{1.5em} }
                 { \hfill }
             }
             {
-              \ \nopagebreak \vspace{2.0em}
+              \space \nopagebreak \vspace{2.0em}
             }
         }
         } % end \bool_if:NF \l_tmpb_bool -- closes the "skip this image if its filename was illegal" guard
+      }
+      % (Claude) single global caption (captions= given with no "[...]"
+      % entries): placed once, below the last image, as documented.
+      \bool_if:NT \l_cn_global_caption_bool {
+        \str_if_eq:VnTF \l_cn_numbering_tl { T }
+          { \caption{\l_cn_global_caption_tl} }
+          { \caption*{\l_cn_global_caption_tl} }
       }
     \end{figure}
     \xspace
