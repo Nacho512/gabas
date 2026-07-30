@@ -127,7 +127,9 @@
 \tl_new:N \l_cn_resolved_path_tl % (Claude) used by \__cn_get_pagecount:nN
 \tl_new:N \l_cn_global_caption_tl % (Claude) holds a single, non-bracketed global caption
 \tl_new:N \l_cn_safe_display_tl % (Claude) see \__cn_safe_display:n
-\tl_new:N \l_cn_underscore_tl % (Claude) a real catcode-8 "_" token, see \__cn_safe_display:n
+% (\l_cn_underscore_tl is declared right next to \__cn_safe_display:n
+% below instead, since building its actual value needs a brief
+% \ExplSyntaxOff, which doesn't belong in this declarations block)
 
 \bool_new:N \g_cn_pdf_overflow_bool
 \bool_new:N \g_cn_pdf_missing_spec_bool
@@ -266,23 +268,49 @@
 % error recovery) -- ironic, since the [ILLEGAL CHARACTER IN FILENAME]
 % box exists specifically to report a filename like this one.
 % \str_lowercase:n-style "just hand it the token" tricks don't help
-% here: \l_cn_underscore_tl is a REAL catcode-8 "_" (built once below via
-% \char_generate:nn, independent of this file's own catcode-11 "_"), and
-% comparing each token of the filename against it -- swapping in a
-% genuine \_ (found catcode-independently via \use:c, since this file's
-% own "_" is the wrong catcode to spell \_ literally here) whenever it
-% matches -- sidesteps the far more fragile \scantokens-based approach
-% (tried first: broke \tl_gset:N.'s own internal expansion machinery
-% with "File ended while scanning..." errors). Verified error-free,
-% including in the log (no residual warnings), against a real
-% underscore-bearing filename.
+% here: \l_cn_underscore_tl is a REAL catcode-8 "_" -- NOT built via
+% \char_generate:nn (tried first: that produces an internal "special
+% character" token that never compares equal to a genuinely-tokenized
+% "_", confirmed by direct test), but captured the reliable way: read
+% one literal "_" while \ExplSyntaxOff is briefly active (so it gets
+% ordinary document catcodes, exactly matching what the user's filename
+% argument gets), independent of this file's own catcode-11 "_".
+% Comparing each token of the filename against it requires the "V" type
+% (":nVTF", not ":nnTF" -- confirmed via direct test that ":nnTF" left
+% the comparison's variable-holding argument unexpanded, so it never
+% matched anything), and the actual replacement can't be built with
+% full ("e"/"x"-type) expansion either: \_ and \textunderscore are NFSS
+% composite commands that, when THEMSELVES further expanded (not just
+% looked up), unfold into a long chain of internal font/encoding-
+% switching macros instead of staying as a single usable token
+% (confirmed: \tl_set:Ne on \use:c{textunderscore} captured
+% "\global\let\OT1\textunderscore..." garbage, not a clean \textunderscore
+% token). \exp_not:c{textunderscore} is the correct expl3 idiom here: it
+% builds the control sequence catcode-independently AND protects it from
+% that further expansion, leaving exactly the bare, still-unexecuted
+% \textunderscore token to be properly invoked later when \texttt{...}
+% actually typesets it. This whole approach sidesteps the much more
+% fragile \scantokens-based attempt tried first (broke \tl_gset:N.'s own
+% internal expansion machinery with "File ended while scanning..."
+% errors). Verified error-free, including in the log (no residual
+% warnings), against a real underscore-bearing filename.
 % =====================================================================
-\tl_set:Nx \l_cn_underscore_tl { \char_generate:nn { 95 } { 8 } }
+% (Claude) NOTE: this temp macro's own name deliberately has no
+% underscore in it -- it's defined here while \ExplSyntaxOff is active
+% (ordinary catcodes, "_" = catcode 8), so an underscore in ITS OWN name
+% would hit the exact same "backslash immediately followed by a non-
+% letter forms a one-character control symbol" issue this whole helper
+% exists to work around, breaking the macro name itself.
+\ExplSyntaxOff
+\edef\GABASrealunderscoretl{_}
+\ExplSyntaxOn
+\tl_new:N \l_cn_underscore_tl
+\tl_set:Nx \l_cn_underscore_tl { \GABASrealunderscoretl }
 \cs_new_protected:Npn \__cn_safe_display:n #1 {
   \tl_clear:N \l_cn_safe_display_tl
   \tl_map_inline:nn { #1 } {
-    \tl_if_eq:nnTF { ##1 } { \tl_use:N \l_cn_underscore_tl }
-      { \tl_put_right:Ne \l_cn_safe_display_tl { \use:c { _ } } }
+    \tl_if_eq:nVTF { ##1 } \l_cn_underscore_tl
+      { \tl_put_right:Ne \l_cn_safe_display_tl { \exp_not:c { textunderscore } } }
       { \tl_put_right:Nn \l_cn_safe_display_tl { ##1 } }
   }
 }
