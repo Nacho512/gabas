@@ -21,7 +21,9 @@ local function is_complex(x)
 end
 
 local function Complex(re, im)
-    return setmetatable({re = re or 0, im = im or 0}, Complex_mt)
+    re, im = re or 0, im or 0
+    assert(type(re) == "number" and type(im) == "number", "Complex: re and im must be numbers.")
+    return setmetatable({re = re, im = im}, Complex_mt)
 end
 
 local function to_complex(x)
@@ -110,6 +112,24 @@ local function Conjugate(x)
     return C
 end
 
+-- Matrix-vector product Av, as a flat vector. Internal helper (used by
+-- Rayleigh); not exported, since the module otherwise always represents an
+-- "n x 1 matrix" as a proper matrix, not a bare vector.
+local function mat_vec(A, v)
+    local m, n = #A, #A[1]
+    assert(#v == n, "mat_vec: vector length must match the number of columns.")
+    local r = {}
+    for i = 1, m do
+        local row = A[i]
+        local sum = 0
+        for j = 1, n do
+            sum = sum + row[j] * v[j]
+        end
+        r[i] = sum
+    end
+    return r
+end
+
 local function copy_matrix(matriz)
     local C = {}
     for i = 1, #matriz do
@@ -138,6 +158,8 @@ local function find_pivot_row(mat, k, last_row, col)
 end
 
 local function Show_matrix(matriz)
+    assert(type(matriz) == "table" and #matriz > 0 and type(matriz[1]) == "table" and #matriz[1] > 0,
+        "Show_matrix: matriz must be a non-empty matrix (a table of non-empty row-tables).")
     local m, n = #matriz, #matriz[1]
     for i = 1, m do
         local row = matriz[i]
@@ -152,8 +174,11 @@ local function Show_matrix(matriz)
 end
 
 local function Matrix(data, num_filas)
+    assert(type(data) == "table" and #data > 0, "Matrix: data must be a non-empty table.")
+    assert(type(num_filas) == "number" and num_filas >= 1 and num_filas == math.floor(num_filas),
+        "Matrix: num_filas must be a positive integer.")
     local limite = #data
-    assert((limite % num_filas) == 0, "Mismatch between number of elements and number of rows.")
+    assert((limite % num_filas) == 0, "Matrix: mismatch between number of elements and number of rows.")
     local m = {}
     local prop = limite / num_filas
     local k = 1
@@ -168,6 +193,7 @@ local function Matrix(data, num_filas)
 end
 
 local function Sequence(aleph, tat)
+    assert(type(aleph) == "number" and type(tat) == "number", "Sequence: aleph and tat must be numbers.")
     local m = {}
     local k = 1
     for j = aleph, tat do
@@ -178,6 +204,7 @@ local function Sequence(aleph, tat)
 end
 
 local function Show_table(tabla)
+    assert(type(tabla) == "table", "Show_table: tabla must be a table.")
     local limite = #tabla
     for j = 1, limite do
         print(tabla[j])
@@ -249,6 +276,7 @@ local function Scalar_mul(matriz, escalar)
 end
 
 local function Eye(dim)
+    assert(type(dim) == "number" and dim >= 1 and dim == math.floor(dim), "Eye: dim must be a positive integer.")
     local C = {}
     for i = 1, dim do
         C[i] = {}
@@ -264,6 +292,10 @@ local function Eye(dim)
 end
 
 local function Zeroes(n_rows, n_cols)
+    assert(type(n_rows) == "number" and n_rows >= 1 and n_rows == math.floor(n_rows),
+        "Zeroes: n_rows must be a positive integer.")
+    assert(type(n_cols) == "number" and n_cols >= 1 and n_cols == math.floor(n_cols),
+        "Zeroes: n_cols must be a positive integer.")
     local C = {}
     for i = 1, n_rows do
         C[i] = {}
@@ -275,6 +307,9 @@ local function Zeroes(n_rows, n_cols)
 end
 
 local function Random_mat(m, n, valor)
+    assert(type(m) == "number" and m >= 1 and m == math.floor(m), "Random_mat: m must be a positive integer.")
+    assert(type(n) == "number" and n >= 1 and n == math.floor(n), "Random_mat: n must be a positive integer.")
+    assert(type(valor) == "number" and valor >= 1, "Random_mat: valor must be >= 1.")
     local C = {}
     for i = 1, m do
         C[i] = {}
@@ -286,6 +321,8 @@ local function Random_mat(m, n, valor)
 end
 
 local function T(matriz)
+    assert(type(matriz) == "table" and #matriz > 0 and type(matriz[1]) == "table" and #matriz[1] > 0,
+        "T: matriz must be a non-empty matrix.")
     local m, n = #matriz, #matriz[1]
     local C = {}
     for i = 1, n do
@@ -322,7 +359,9 @@ local function Vdot(v1, v2)
 end
 
 local function VNorm(v, p)
+    assert(type(v) == "table" and #v > 0, "VNorm: v must be a non-empty vector.")
     p = p or 2
+    assert(p ~= 0, "VNorm: p must not be 0 (there is no p=0 'norm' expressible via sum(|vi|^p)^(1/p)).")
     local sum = 0
     for i = 1, #v do
         sum = sum + cabs(v[i]) ^ p
@@ -497,6 +536,10 @@ local function Big_MDet(matrix, block_size)
     local n = #matrix
     assert(n == #matrix[1], "Big_MDet: matrix must be square.")
     block_size = block_size or 64
+    -- A block_size <= 0 would make panel_end < col every iteration, so `col`
+    -- never advances -- an infinite loop, not just a bad result.
+    assert(type(block_size) == "number" and block_size >= 1 and block_size == math.floor(block_size),
+        "Big_MDet: block_size must be a positive integer.")
 
     if n <= block_size then
         return MDet(matrix)
@@ -604,6 +647,8 @@ end
 -- Row-reduces a copy of the matrix (Gaussian elimination with partial
 -- pivoting) and counts the pivots found. Works for non-square matrices too.
 local function Rank(matriz)
+    assert(type(matriz) == "table" and #matriz > 0 and type(matriz[1]) == "table" and #matriz[1] > 0,
+        "Rank: matriz must be a non-empty matrix.")
     local mat = copy_matrix(matriz)
     local rows, cols = #mat, #mat[1]
     local rank = 0
@@ -816,6 +861,11 @@ local function Eigenvalues(matriz, max_iter, tol)
     assert(n == #matriz[1], "Eigenvalues: matrix must be square.")
     assert_real_matrix(matriz, "Eigenvalues")
     max_iter = max_iter or 500
+    -- Silently accepting max_iter <= 0 would just skip the whole iteration
+    -- and return the unconverged input read straight off the diagonal --
+    -- wrong, but without any error to say so.
+    assert(type(max_iter) == "number" and max_iter >= 1 and max_iter == math.floor(max_iter),
+        "Eigenvalues: max_iter must be a positive integer.")
     tol = tol or 1e-10
 
     local A = copy_matrix(matriz)
@@ -877,6 +927,8 @@ local function Eigenvectors(matriz, max_iter, tol)
     assert(n == #matriz[1], "Eigenvectors: matrix must be square.")
     assert_real_matrix(matriz, "Eigenvectors")
     max_iter = max_iter or 500
+    assert(type(max_iter) == "number" and max_iter >= 1 and max_iter == math.floor(max_iter),
+        "Eigenvectors: max_iter must be a positive integer.")
     tol = tol or 1e-10
 
     local A = copy_matrix(matriz)
@@ -906,6 +958,110 @@ local function Eigenvectors(matriz, max_iter, tol)
     return eigenvalues, Q_total
 end
 
+-- Modified Gram-Schmidt: takes a matrix whose ROWS are a (possibly linearly
+-- dependent, possibly Complex-valued) set of input vectors, and returns a
+-- matrix whose rows are an orthonormal basis for their span -- using the
+-- Hermitian inner product (Conjugate(qi) . v) for the projection
+-- coefficients, so this works correctly for Complex-entry input too, not
+-- just real. A vector that turns out to be a linear combination of the ones
+-- already processed (residual norm below `tol` after projecting out every
+-- prior basis vector) is skipped rather than raising an error -- the result
+-- can have fewer rows than the input; a warning is printed (and the count
+-- returned) when that happens, so it's visible rather than silently losing
+-- a vector.
+local function GRAM_SCH(vectores, tol)
+    assert(type(vectores) == "table" and #vectores > 0, "GRAM_SCH: need at least one vector.")
+    local k = #vectores
+    assert(type(vectores[1]) == "table" and #vectores[1] > 0, "GRAM_SCH: vectors must be non-empty.")
+    local dim = #vectores[1]
+    for i = 2, k do
+        assert(type(vectores[i]) == "table" and #vectores[i] == dim,
+            "GRAM_SCH: all vectors must have the same length.")
+    end
+    tol = tol or 1e-10
+
+    local basis = {}
+    for i = 1, k do
+        local v = {}
+        for d = 1, dim do
+            v[d] = vectores[i][d]
+        end
+        for _, q in ipairs(basis) do
+            local coeff = Vdot(Conjugate(q), v)
+            for d = 1, dim do
+                v[d] = v[d] - coeff * q[d]
+            end
+        end
+        if VNorm(v) > tol then
+            basis[#basis + 1] = VNormalize(v)
+        end
+    end
+
+    local skipped = k - #basis
+    assert(#basis > 0, "GRAM_SCH: all input vectors were linearly dependent (zero-dimensional span).")
+    if skipped > 0 then
+        io.stderr:write(string.format(
+            "GRAM_SCH: %d of %d input vector(s) were linearly dependent on the others and were dropped.\n",
+            skipped, k))
+    end
+
+    return basis, skipped
+end
+
+-- Rayleigh quotient iteration: refines a user-supplied seed vector into an
+-- eigenvalue/eigenvector estimate. Starting from mu_0 = Rayleigh(v0), each
+-- step solves (A - mu*I) v_new = v for a new direction and re-normalizes;
+-- this converges locally cubically fast once close enough to a genuine
+-- eigenpair, but it converges to WHICHEVER eigenvalue the seed vector
+-- happens to be closest to -- a different seed can land on a different
+-- eigenvalue, and a badly-chosen seed can (rarely) fail to converge within
+-- max_iter. Works on Complex-entry matrices/seed vectors too, via the
+-- Hermitian inner product (Conjugate(v) . w) used for the quotient itself --
+-- unlike Eigenvalues/Eigenvectors, this never touches qr_decompose.
+local function Rayleigh(matriz, v0, max_iter, tol)
+    local n = #matriz
+    assert(n == #matriz[1], "Rayleigh: matrix must be square.")
+    assert(type(v0) == "table" and #v0 == n,
+        "Rayleigh: seed vector length must match the matrix dimension.")
+    assert(VNorm(v0) > EPSILON, "Rayleigh: seed vector must not be the zero vector.")
+    max_iter = max_iter or 100
+    assert(type(max_iter) == "number" and max_iter >= 1 and max_iter == math.floor(max_iter),
+        "Rayleigh: max_iter must be a positive integer.")
+    tol = tol or 1e-12
+
+    local v = VNormalize(v0)
+    local mu = Vdot(Conjugate(v), mat_vec(matriz, v))
+    local converged = false
+
+    for _ = 1, max_iter do
+        local shifted = Mat_sub(matriz, Scalar_mul(Eye(n), mu))
+        local ok, v_next = pcall(Solve, shifted, v)
+        if not ok then
+            -- (A - mu*I) is numerically singular: mu is already essentially
+            -- an eigenvalue -- exactly what convergence looks like, so treat
+            -- it as success rather than propagating Solve's error.
+            converged = true
+            break
+        end
+        v = VNormalize(v_next)
+        local mu_next = Vdot(Conjugate(v), mat_vec(matriz, v))
+        local delta = mu_next - mu
+        mu = mu_next
+        if cabs(delta) < tol then
+            converged = true
+            break
+        end
+    end
+
+    if not converged then
+        io.stderr:write(string.format(
+            "Rayleigh: did not converge within %d iterations (last estimate: %s); " ..
+            "try a different seed vector or a larger max_iter.\n", max_iter, tostring(mu)))
+    end
+
+    return mu, v, converged
+end
+
 return {
     Complex = Complex, Is_complex = is_complex, Conjugate = Conjugate,
     Show_matrix = Show_matrix, Matrix = Matrix, Sequence = Sequence, Show_table = Show_table,
@@ -913,4 +1069,5 @@ return {
     Eye = Eye, Zeroes = Zeroes, Random_mat = Random_mat, T = T, VTrace = VTrace,
     Vdot = Vdot, VNorm = VNorm, VNormalize = VNormalize, MDet = MDet, Big_MDet = Big_MDet, Rank = Rank, Inverse = Inverse,
     Solve = Solve, Eigenvalues = Eigenvalues, Eigenvectors = Eigenvectors,
+    GRAM_SCH = GRAM_SCH, Rayleigh = Rayleigh,
 }
