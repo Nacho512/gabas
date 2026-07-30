@@ -330,6 +330,18 @@ local function VNorm(v, p)
     return sum ^ (1 / p)
 end
 
+-- Returns a new vector scaled to unit length (VNorm(v, p) == 1), leaving `v`
+-- itself untouched. Uses the same p as VNorm (default 2, Euclidean).
+local function VNormalize(v, p)
+    local norm = VNorm(v, p)
+    assert(norm > EPSILON, "VNormalize: cannot normalize a zero vector.")
+    local C = {}
+    for i = 1, #v do
+        C[i] = v[i] / norm
+    end
+    return C
+end
+
 local function MDet(matrix)
     local rows, cols = #matrix, #matrix[1]
     assert(rows == cols, "MDet: matrix must be square.")
@@ -899,6 +911,6 @@ return {
     Show_matrix = Show_matrix, Matrix = Matrix, Sequence = Sequence, Show_table = Show_table,
     Mat_mul = Mat_mul, Mat_sum = Mat_sum, Mat_sub = Mat_sub, Scalar_mul = Scalar_mul,
     Eye = Eye, Zeroes = Zeroes, Random_mat = Random_mat, T = T, VTrace = VTrace,
-    Vdot = Vdot, VNorm = VNorm, MDet = MDet, Big_MDet = Big_MDet, Rank = Rank, Inverse = Inverse,
+    Vdot = Vdot, VNorm = VNorm, VNormalize = VNormalize, MDet = MDet, Big_MDet = Big_MDet, Rank = Rank, Inverse = Inverse,
     Solve = Solve, Eigenvalues = Eigenvalues, Eigenvectors = Eigenvectors,
 }
