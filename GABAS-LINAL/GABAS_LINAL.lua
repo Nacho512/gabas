@@ -354,10 +354,27 @@ local function Zeroes(n_rows, n_cols)
     return C
 end
 
-local function Random_mat(m, n, valor)
+-- If `seed` is given, reseeds Lua's global PRNG right before filling the
+-- matrix, so the same seed always reproduces the same matrix -- useful for
+-- reproducible tests and examples, and a version-independent fix for the
+-- fact that math.random's underlying generator (and its default seeding
+-- quality) differs across Lua versions: pre-5.4 delegates straight to the
+-- C library's rand() with "no guarantees on its statistical properties"
+-- (the Lua 5.1 manual's own words), while 5.4 switched to xoshiro256**.
+-- Omitting `seed` leaves the current PRNG state exactly as it is, rather
+-- than reseeding on every call -- reseeding unconditionally here would be
+-- worse than doing nothing, since two calls made in the same run (or two
+-- runs started in the same second, on a Lua where the default seed comes
+-- from time()) could otherwise reset to the same state and produce
+-- identical "random" matrices.
+local function Random_mat(m, n, valor, seed)
     assert(type(m) == "number" and m >= 1 and m == math.floor(m), "Random_mat: m must be a positive integer.")
     assert(type(n) == "number" and n >= 1 and n == math.floor(n), "Random_mat: n must be a positive integer.")
     assert(type(valor) == "number" and valor >= 1, "Random_mat: valor must be >= 1.")
+    if seed ~= nil then
+        assert(type(seed) == "number", "Random_mat: seed must be a number.")
+        math.randomseed(seed)
+    end
     local C = {}
     for i = 1, m do
         C[i] = {}
