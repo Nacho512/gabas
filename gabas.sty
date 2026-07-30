@@ -585,15 +585,47 @@
     % under plain pdflatex without extra conversion tools this package
     % doesn't require elsewhere, so allowing them here would just move the
     % failure from a clear "unsupported extension" message to a much more
-    % confusing \includegraphics error later. A flat clist membership
-    % check (rather than a full keys/dictionary structure) remains the
-    % right tool here: there's no per-extension metadata to carry, only
-    % "is this string in the allowed set," which is exactly what a clist
-    % is for.
+    % confusing \includegraphics error later. A flat set of explicit
+    % checks (rather than a full keys/dictionary structure) remains the
+    % right level of tool here: there's no per-extension metadata to
+    % carry, only "is this string in the allowed set."
+    %
+    % BUGFIX (Claude): this used to loop the comparison via
+    % \clist_map_inline:nn { pdf, png, jpg, jpeg, eps } { \str_if_eq:VnT
+    % \l_cn_ext_tl { ####1 } {...} }, which silently FAILED to match a
+    % MIXED-case extension after lowercasing (e.g. an original "Jpg" ->
+    % lowercased to "jpg") against the clist's own "jpg" item, even
+    % though \l_cn_ext_tl printed as "jpg" and matched a literal "jpg"
+    % fine on its own -- confirmed with a standalone test that isolated
+    % \clist_map_inline's substituted loop variable as the specific
+    % point of failure (an all-lowercase or all-uppercase extension, by
+    % contrast, worked fine either way). A real image named e.g.
+    % "Circuit.Jpg" would have been wrongly rejected as an invalid
+    % extension, and -- worse -- \InsertImages then crashed outright
+    % trying to report that false rejection. Comparing against each
+    % literal directly, with no clist loop in between, sidesteps the bug
+    % entirely (confirmed fixed by the same standalone test).
+    %
+    % KNOWN REMAINING LIMITATION (Claude, 2026/07/30): with THIS fix
+    % applied, the extension match itself is confirmed correct for
+    % mixed-case extensions (e.g. "Jpg" -> matches "jpg" here). However,
+    % a real file with a mixed-case extension (single capitalized
+    % letter, e.g. "CTRL.Jpg") STILL crashes \InsertImages further
+    % downstream, with an unrelated internal LaTeX3 message-system
+    % failure ("A sequence was misused" / "Use of ??? doesn't match its
+    % definition") that traces into l3msg's own internals
+    % (__msg_expandable_error:nn, __prop_item:nnn {seq}), not into
+    % anything in this file directly. All-lowercase and ALL-UPPERCASE
+    % extensions are unaffected and confirmed working end to end. Filed
+    % as its own follow-up (likely the same root cause as the
+    % critical-guard-box "Missing $" bug filed separately) rather than
+    % chased further here.
     \bool_set_false:N \l_tmpb_bool
-    \clist_map_inline:nn { pdf, png, jpg, jpeg, eps } {
-      \str_if_eq:VnT \l_cn_ext_tl { ####1 } { \bool_set_true:N \l_tmpb_bool }
-    }
+    \str_if_eq:VnT \l_cn_ext_tl { pdf }  { \bool_set_true:N \l_tmpb_bool }
+    \str_if_eq:VnT \l_cn_ext_tl { png }  { \bool_set_true:N \l_tmpb_bool }
+    \str_if_eq:VnT \l_cn_ext_tl { jpg }  { \bool_set_true:N \l_tmpb_bool }
+    \str_if_eq:VnT \l_cn_ext_tl { jpeg } { \bool_set_true:N \l_tmpb_bool }
+    \str_if_eq:VnT \l_cn_ext_tl { eps }  { \bool_set_true:N \l_tmpb_bool }
     \bool_if:NF \l_tmpb_bool {
       \bool_gset_true:N \g_cn_invalid_ext_bool
       \msg_error:nnxx { circuitnacho } { invalid-extension } { ##1 } { \l_cn_ext_tl }
