@@ -192,6 +192,54 @@ local function Matrix(data, num_filas)
     return m
 end
 
+-- Recursively fills the innermost-to-outermost nesting of a tensor, one
+-- dimension per recursion level, threading `offset` through so each leaf of
+-- `data` is consumed exactly once, in the same row-major order Matrix uses
+-- (the LAST dimension varies fastest) -- consistent with the rest of the
+-- module, where a 2-D matrix is already a table of row-tables.
+local function build_tensor(data, dims, dim_idx, offset)
+    local extent = dims[dim_idx]
+    local t = {}
+    if dim_idx == #dims then
+        for i = 1, extent do
+            t[i] = data[offset + i]
+        end
+        return t, offset + extent
+    end
+    for i = 1, extent do
+        t[i], offset = build_tensor(data, dims, dim_idx + 1, offset)
+    end
+    return t, offset
+end
+
+-- Tensor generalizes Matrix from 2 dimensions to any number of them: `data`
+-- stays a flat vector (exactly like Matrix's `data`), and `dims` is a table
+-- listing EVERY dimension's size explicitly -- e.g. {2, 3, 4} for a 2x3x4
+-- tensor -- rather than trying to infer all-but-one dimension from a single
+-- count the way Matrix infers columns from num_filas. That inference does
+-- not generalize past 2 dimensions (there is no unique way to split a
+-- leftover element count across 2+ unknown dimensions), so for a tensor
+-- every dimension size must be given up front. The result is nested tables
+-- #dims levels deep: a 3-D tensor T is indexed T[i][j][k].
+local function Tensor(data, dims)
+    assert(type(data) == "table" and #data > 0, "Tensor: data must be a non-empty table.")
+    assert(type(dims) == "table" and #dims >= 3,
+        "Tensor: dims must be a table listing every dimension size, with at least 3 entries " ..
+        "(use Matrix for 2 dimensions, or a plain flat table for 1).")
+    local total = 1
+    for i = 1, #dims do
+        local extent = dims[i]
+        assert(type(extent) == "number" and extent >= 1 and extent == math.floor(extent),
+            "Tensor: dims[" .. i .. "] must be a positive integer.")
+        total = total * extent
+    end
+    assert(#data == total,
+        "Tensor: mismatch between number of elements (" .. #data ..
+        ") and the product of dims (" .. total .. ").")
+    local t = build_tensor(data, dims, 1, 0)
+    return t
+end
+
 local function Sequence(aleph, tat)
     assert(type(aleph) == "number" and type(tat) == "number", "Sequence: aleph and tat must be numbers.")
     local m = {}
@@ -1064,7 +1112,7 @@ end
 
 return {
     Complex = Complex, Is_complex = is_complex, Conjugate = Conjugate,
-    Show_matrix = Show_matrix, Matrix = Matrix, Sequence = Sequence, Show_table = Show_table,
+    Show_matrix = Show_matrix, Matrix = Matrix, Tensor = Tensor, Sequence = Sequence, Show_table = Show_table,
     Mat_mul = Mat_mul, Mat_sum = Mat_sum, Mat_sub = Mat_sub, Scalar_mul = Scalar_mul,
     Eye = Eye, Zeroes = Zeroes, Random_mat = Random_mat, T = T, VTrace = VTrace,
     Vdot = Vdot, VNorm = VNorm, VNormalize = VNormalize, MDet = MDet, Big_MDet = Big_MDet, Rank = Rank, Inverse = Inverse,
