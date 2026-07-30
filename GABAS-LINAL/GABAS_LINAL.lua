@@ -1,3 +1,23 @@
+-- ===========================================================================
+-- SUBMODULOS TENTATIVOS
+-- Cada funcion de este archivo lleva una etiqueta [Categoria] al inicio de
+-- su comentario, anticipando a que submodulo se mudaria el dia que este
+-- archivo se separe en varios. Es solo documentacion por ahora -- no cambia
+-- como se cargan ni como se llaman las funciones todavia.
+--
+--   Core        -- infraestructura interna compartida por 2+ categorias
+--                  (EPSILON, cabs, copy_matrix, find_pivot_row, next_pow2)
+--   Complex     -- Complex, sus metametodos/metodos, Conjugate
+--   Matrix      -- construccion/despliegue/aritmetica de matrices 2-D
+--   Tensor      -- generalizacion n-dimensional de la familia Matrix
+--   Vector      -- VTrace, Vdot, VNorm, VNormalize
+--   Determinant -- MDet, Big_MDet y el multiplicador Strassen que usa
+--   Systems     -- Rank, Inverse, Solve
+--   Eigen       -- Eigenvalues, Eigenvectors, Rayleigh, GRAM_SCH
+--   FFT         -- FFT, IFFT
+-- ===========================================================================
+
+-- [Core]
 local EPSILON = 1e-9
 
 -- ===========================================================================
@@ -13,25 +33,32 @@ local EPSILON = 1e-9
 -- the metamethods are never invoked and ordinary Lua number arithmetic runs.
 -- ===========================================================================
 
+-- [Complex]
 local Complex_mt = {}
 Complex_mt.__index = Complex_mt
 
+-- [Complex]
 local function is_complex(x)
     return type(x) == "table" and getmetatable(x) == Complex_mt
 end
 
+-- [Complex]
 local function Complex(re, im)
     re, im = re or 0, im or 0
     assert(type(re) == "number" and type(im) == "number", "Complex: re and im must be numbers.")
     return setmetatable({re = re, im = im}, Complex_mt)
 end
 
+-- [Complex]
 local function to_complex(x)
     if is_complex(x) then return x end
     assert(type(x) == "number", "Complex: expected a number or a Complex value.")
     return Complex(x, 0)
 end
 
+-- [Complex] operator metamethods (__add.._tostring) and instance methods
+-- (conj/abs/arg) for Complex_mt -- see the header comment above for why
+-- these are what let real arithmetic gain Complex support "for free".
 function Complex_mt.__add(a, b)
     a, b = to_complex(a), to_complex(b)
     return Complex(a.re + b.re, a.im + b.im)
@@ -82,9 +109,11 @@ function Complex_mt.arg(a)
     return math.atan(a.im, a.re)
 end
 
--- Magnitude that works on both plain numbers and Complex values -- used
--- everywhere a pivoting/convergence/near-zero check needs "how big is this",
--- regardless of whether the entries are real or complex.
+-- [Core] Magnitude that works on both plain numbers and Complex values --
+-- used everywhere a pivoting/convergence/near-zero check needs "how big is
+-- this", regardless of whether the entries are real or complex. Shared by
+-- Determinant, Systems, and Eigen alike, which is what makes it Core rather
+-- than belonging to any one future submodule.
 local function cabs(x)
     if is_complex(x) then
         return x:abs()
@@ -92,8 +121,12 @@ local function cabs(x)
     return math.abs(x)
 end
 
--- Elementwise conjugate. Accepts either a vector (flat table) or a matrix
--- (table of row-tables); plain-number entries pass through unchanged.
+-- [Complex] Elementwise conjugate. Accepts either a vector (flat table) or a
+-- matrix (table of row-tables); plain-number entries pass through
+-- unchanged. Lives conceptually in Complex even though its only current
+-- callers (GRAM_SCH, Rayleigh) are in Eigen -- that cross-submodule call is
+-- normal (Eigen would `require` Complex), unlike the Core helpers above,
+-- which have no natural domain-category home of their own.
 local function Conjugate(x)
     local C = {}
     if type(x[1]) == "table" and not is_complex(x[1]) then
@@ -112,9 +145,9 @@ local function Conjugate(x)
     return C
 end
 
--- Matrix-vector product Av, as a flat vector. Internal helper (used by
--- Rayleigh); not exported, since the module otherwise always represents an
--- "n x 1 matrix" as a proper matrix, not a bare vector.
+-- [Eigen] Matrix-vector product Av, as a flat vector. Internal helper (used
+-- by Rayleigh); not exported, since the module otherwise always represents
+-- an "n x 1 matrix" as a proper matrix, not a bare vector.
 local function mat_vec(A, v)
     local m, n = #A, #A[1]
     assert(#v == n, "mat_vec: vector length must match the number of columns.")
@@ -130,6 +163,9 @@ local function mat_vec(A, v)
     return r
 end
 
+-- [Core] Used by MDet/Big_MDet (Determinant), Rank (Systems), and
+-- Eigenvalues/Eigenvectors (Eigen) alike, so callers never mutate the
+-- matrix they passed in.
 local function copy_matrix(matriz)
     local C = {}
     for i = 1, #matriz do
@@ -142,10 +178,11 @@ local function copy_matrix(matriz)
     return C
 end
 
--- Searches rows [k, last_row] of column `col` for the entry with the largest
--- magnitude (classic partial pivoting: picking the largest magnitude, not
--- just the first non-zero one, keeps the elimination numerically stable).
--- Returns the row index, or nil if every candidate is ~0 (singular column).
+-- [Core] Searches rows [k, last_row] of column `col` for the entry with the
+-- largest magnitude (classic partial pivoting: picking the largest
+-- magnitude, not just the first non-zero one, keeps the elimination
+-- numerically stable). Returns the row index, or nil if every candidate is
+-- ~0 (singular column). Shared by Determinant and Systems.
 local function find_pivot_row(mat, k, last_row, col)
     local best_row, best_val = nil, EPSILON
     for i = k, last_row do
@@ -157,7 +194,7 @@ local function find_pivot_row(mat, k, last_row, col)
     return best_row
 end
 
--- Shared guard for the whole *_tensor family (Tensor, Zeroes_tensor,
+-- [Tensor] Shared guard for the whole *_tensor family (Tensor, Zeroes_tensor,
 -- Eye_tensor, Random_tensor): `dims` must explicitly list every dimension
 -- size, with at least 3 entries -- 2 or fewer belongs to the matrix-only
 -- counterpart named by `counterpart_name`, since (as established for
@@ -175,9 +212,10 @@ local function validate_tensor_dims(dims, fn_name, counterpart_name)
     end
 end
 
--- Builds a tensor of shape dims[dim_idx..#dims], every entry set to `value`.
--- Shared by Zeroes_tensor (value = 0) and by Eye_tensor's off-diagonal
--- branches (also value = 0, but reached from a different starting dim_idx).
+-- [Tensor] Builds a tensor of shape dims[dim_idx..#dims], every entry set to
+-- `value`. Shared by Zeroes_tensor (value = 0) and by Eye_tensor's
+-- off-diagonal branches (also value = 0, but reached from a different
+-- starting dim_idx).
 local function build_filled_tensor(dims, dim_idx, value)
     local extent = dims[dim_idx]
     local t = {}
@@ -193,6 +231,7 @@ local function build_filled_tensor(dims, dim_idx, value)
     return t
 end
 
+-- [Matrix]
 local function Show_matrix(matriz)
     assert(type(matriz) == "table" and #matriz > 0 and type(matriz[1]) == "table" and #matriz[1] > 0,
         "Show_matrix: matriz must be a non-empty matrix (a table of non-empty row-tables).")
@@ -209,7 +248,7 @@ local function Show_matrix(matriz)
     end
 end
 
--- Counts how many levels of table-nesting `t` has before hitting a leaf
+-- [Tensor] Counts how many levels of table-nesting `t` has before hitting a leaf
 -- (a plain number or a Complex value) -- i.e. how many dimensions a tensor
 -- built by Tensor/Zeroes_tensor/Eye_tensor/Random_tensor actually has.
 -- Only ever walks down through t[1], t[1][1], ...: like the rest of the
@@ -221,7 +260,7 @@ local function tensor_depth(t)
     return 1 + tensor_depth(t[1])
 end
 
--- Prints one (depth-2)-dimensional matrix "slice" of a tensor per call,
+-- [Tensor] Prints one (depth-2)-dimensional matrix "slice" of a tensor per call,
 -- each preceded by a header naming the fixed leading indices that got us
 -- there (e.g. "T[2][1] =" for a slice fixing the first two of four
 -- dimensions), then recurses one dimension shallower until only 2 remain.
@@ -245,7 +284,7 @@ local function show_tensor_rec(t, depth, path)
     end
 end
 
--- Tensor counterpart of Show_matrix: prints every 2-D slice of a tensor of
+-- [Tensor] Tensor counterpart of Show_matrix: prints every 2-D slice of a tensor of
 -- 3 or more dimensions, each labeled with the leading indices fixed to
 -- reach it, so an n-dimensional block of numbers stays readable as a
 -- sequence of ordinary matrices instead of one flat wall of digits.
@@ -258,6 +297,7 @@ local function Show_tensor(t)
     show_tensor_rec(t, depth, {})
 end
 
+-- [Matrix]
 local function Matrix(data, num_filas)
     assert(type(data) == "table" and #data > 0, "Matrix: data must be a non-empty table.")
     assert(type(num_filas) == "number" and num_filas >= 1 and num_filas == math.floor(num_filas),
@@ -277,7 +317,7 @@ local function Matrix(data, num_filas)
     return m
 end
 
--- Recursively fills the innermost-to-outermost nesting of a tensor, one
+-- [Tensor] Recursively fills the innermost-to-outermost nesting of a tensor, one
 -- dimension per recursion level, threading `offset` through so each leaf of
 -- `data` is consumed exactly once, in the same row-major order Matrix uses
 -- (the LAST dimension varies fastest) -- consistent with the rest of the
@@ -297,7 +337,7 @@ local function build_tensor(data, dims, dim_idx, offset)
     return t, offset
 end
 
--- Tensor generalizes Matrix from 2 dimensions to any number of them: `data`
+-- [Tensor] Tensor generalizes Matrix from 2 dimensions to any number of them: `data`
 -- stays a flat vector (exactly like Matrix's `data`), and `dims` is a table
 -- listing EVERY dimension's size explicitly -- e.g. {2, 3, 4} for a 2x3x4
 -- tensor -- rather than trying to infer all-but-one dimension from a single
@@ -320,6 +360,7 @@ local function Tensor(data, dims)
     return t
 end
 
+-- [Matrix]
 local function Sequence(aleph, tat)
     assert(type(aleph) == "number" and type(tat) == "number", "Sequence: aleph and tat must be numbers.")
     local m = {}
@@ -331,6 +372,7 @@ local function Sequence(aleph, tat)
     return m
 end
 
+-- [Matrix]
 local function Show_table(tabla)
     assert(type(tabla) == "table", "Show_table: tabla must be a table.")
     local limite = #tabla
@@ -339,6 +381,7 @@ local function Show_table(tabla)
     end
 end
 
+-- [Matrix]
 local function Mat_mul(M1, M2)
     local m, p = #M1, #M1[1]
     local n = #M2[1]
@@ -359,6 +402,7 @@ local function Mat_mul(M1, M2)
     return C
 end
 
+-- [Matrix]
 local function Mat_sum(M1, M2)
     local m, n = #M1, #M1[1]
     assert(#M2 == m and #M2[1] == n, "Mat_sum: matrices must have matching dimensions.")
@@ -374,6 +418,7 @@ local function Mat_sum(M1, M2)
     return C
 end
 
+-- [Matrix]
 local function Mat_sub(M1, M2)
     local m, n = #M1, #M1[1]
     assert(#M2 == m and #M2[1] == n, "Mat_sub: matrices must have matching dimensions.")
@@ -389,6 +434,7 @@ local function Mat_sub(M1, M2)
     return C
 end
 
+-- [Matrix]
 local function Scalar_mul(matriz, escalar)
     local m, n = #matriz, #matriz[1]
     local C = {}
@@ -403,6 +449,7 @@ local function Scalar_mul(matriz, escalar)
     return C
 end
 
+-- [Matrix]
 local function Eye(dim)
     assert(type(dim) == "number" and dim >= 1 and dim == math.floor(dim), "Eye: dim must be a positive integer.")
     local C = {}
@@ -419,7 +466,7 @@ local function Eye(dim)
     return C
 end
 
--- Builds levels dim_idx..#dims of the hyperdiagonal, given that every index
+-- [Tensor] Builds levels dim_idx..#dims of the hyperdiagonal, given that every index
 -- chosen so far exactly equals ref_index (the value the very first index
 -- took) -- i.e. the path built so far still sits "on the diagonal". Once a
 -- branch picks an index different from ref_index, everything below it is
@@ -444,7 +491,7 @@ local function build_eye_tensor(dims, dim_idx, ref_index)
     return t
 end
 
--- Tensor counterpart of Eye. A matrix's identity property (Eye(n) is the
+-- [Tensor] Tensor counterpart of Eye. A matrix's identity property (Eye(n) is the
 -- identity element for Mat_mul) does not generalize to order-3-or-higher
 -- tensors -- this module never defines a general "tensor product" for
 -- Mat_mul to be an identity element of in the first place. What DOES
@@ -471,6 +518,7 @@ local function Eye_tensor(dims)
     return t
 end
 
+-- [Matrix]
 local function Zeroes(n_rows, n_cols)
     assert(type(n_rows) == "number" and n_rows >= 1 and n_rows == math.floor(n_rows),
         "Zeroes: n_rows must be a positive integer.")
@@ -486,7 +534,7 @@ local function Zeroes(n_rows, n_cols)
     return C
 end
 
--- Tensor counterpart of Zeroes: an all-zero tensor of the given shape.
+-- [Tensor] Tensor counterpart of Zeroes: an all-zero tensor of the given shape.
 -- Unlike Eye_tensor, dims need not be a hypercube here -- an all-zero
 -- tensor is well-defined for any shape.
 local function Zeroes_tensor(dims)
@@ -494,7 +542,7 @@ local function Zeroes_tensor(dims)
     return build_filled_tensor(dims, 1, 0)
 end
 
--- If `seed` is given, reseeds Lua's global PRNG right before filling the
+-- [Matrix] If `seed` is given, reseeds Lua's global PRNG right before filling the
 -- matrix, so the same seed always reproduces the same matrix -- useful for
 -- reproducible tests and examples, and a version-independent fix for the
 -- fact that math.random's underlying generator (and its default seeding
@@ -525,6 +573,7 @@ local function Random_mat(m, n, valor, seed)
     return C
 end
 
+-- [Tensor]
 local function build_random_tensor(dims, dim_idx, valor)
     local extent = dims[dim_idx]
     local t = {}
@@ -540,7 +589,7 @@ local function build_random_tensor(dims, dim_idx, valor)
     return t
 end
 
--- Tensor counterpart of Random_mat: same entry distribution (integers drawn
+-- [Tensor] Tensor counterpart of Random_mat: same entry distribution (integers drawn
 -- uniformly from math.random(1, valor)) and the same optional `seed` for
 -- reproducibility, generalized to any shape with 3+ dimensions.
 local function Random_tensor(dims, valor, seed)
@@ -553,6 +602,7 @@ local function Random_tensor(dims, valor, seed)
     return build_random_tensor(dims, 1, valor)
 end
 
+-- [Matrix]
 local function T(matriz)
     assert(type(matriz) == "table" and #matriz > 0 and type(matriz[1]) == "table" and #matriz[1] > 0,
         "T: matriz must be a non-empty matrix.")
@@ -568,6 +618,7 @@ local function T(matriz)
     return C
 end
 
+-- [Vector]
 local function VTrace(matriz)
     local rows, cols = #matriz, #matriz[1]
     assert(rows == cols, "VTrace: matrix must be square.")
@@ -578,7 +629,7 @@ local function VTrace(matriz)
     return sum
 end
 
--- Vectors are plain flat tables {v1, v2, ...}, unlike matrices, which are
+-- [Vector] Vectors are plain flat tables {v1, v2, ...}, unlike matrices, which are
 -- tables of row-tables. This is the bilinear (non-conjugated) dot product;
 -- for the Hermitian inner product on complex vectors, conjugate one side
 -- first with Conjugate().
@@ -591,6 +642,7 @@ local function Vdot(v1, v2)
     return sum
 end
 
+-- [Vector]
 local function VNorm(v, p)
     assert(type(v) == "table" and #v > 0, "VNorm: v must be a non-empty vector.")
     p = p or 2
@@ -602,7 +654,7 @@ local function VNorm(v, p)
     return sum ^ (1 / p)
 end
 
--- Returns a new vector scaled to unit length (VNorm(v, p) == 1), leaving `v`
+-- [Vector] Returns a new vector scaled to unit length (VNorm(v, p) == 1), leaving `v`
 -- itself untouched. Uses the same p as VNorm (default 2, Euclidean).
 local function VNormalize(v, p)
     local norm = VNorm(v, p)
@@ -614,6 +666,7 @@ local function VNormalize(v, p)
     return C
 end
 
+-- [Determinant]
 local function MDet(matrix)
     local rows, cols = #matrix, #matrix[1]
     assert(rows == cols, "MDet: matrix must be square.")
@@ -677,13 +730,16 @@ end
 -- friendly implementation. Tune `block_size` (default 64) if needed.
 -- ===========================================================================
 
+-- [Core] Shared by Big_MDet (Determinant) and FFT -- a genuine
+-- cross-category dependency, unlike strassen_mul/strassen_mul_rect right
+-- below, which only Big_MDet itself uses.
 local function next_pow2(x)
     local m = 1
     while m < x do m = m * 2 end
     return m
 end
 
--- Square Strassen multiply; n must already be a power of 2.
+-- [Determinant] Square Strassen multiply; n must already be a power of 2.
 local function strassen_mul(A, B, n, threshold)
     if n <= threshold then
         return Mat_mul(A, B)
@@ -731,7 +787,7 @@ local function strassen_mul(A, B, n, threshold)
     return C
 end
 
--- Rectangular multiply (m x k) * (k x n) via square Strassen, using
+-- [Determinant] Rectangular multiply (m x k) * (k x n) via square Strassen, using
 -- zero-padding up to the next power of 2 and extracting the real m x n
 -- corner of the result -- the zero-padded rows/columns only ever contribute
 -- zero to the extracted region, so this is exact, not approximate.
@@ -765,6 +821,7 @@ local function strassen_mul_rect(A, m, k, B, k2, n, threshold)
     return C
 end
 
+-- [Determinant]
 local function Big_MDet(matrix, block_size)
     local n = #matrix
     assert(n == #matrix[1], "Big_MDet: matrix must be square.")
@@ -899,7 +956,7 @@ end
 -- explicit choice for the caller to make, not something FFT does silently.
 -- ===========================================================================
 
--- sign = -1 for the forward transform's e^{-i*2*pi*k*n/N} twiddle factors,
+-- [FFT] sign = -1 for the forward transform's e^{-i*2*pi*k*n/N} twiddle factors,
 -- +1 for the inverse transform's e^{+i*2*pi*k*n/N} ones; IFFT additionally
 -- divides every output by N afterwards, which this helper deliberately
 -- does not do, since it would be wrong to apply twice across the recursion.
@@ -927,7 +984,7 @@ local function fft_recursive(v, sign)
     return result
 end
 
--- Forward FFT: X_k = sum_n v_n * e^(-i*2*pi*k*n/N). `v` may hold plain
+-- [FFT] Forward FFT: X_k = sum_n v_n * e^(-i*2*pi*k*n/N). `v` may hold plain
 -- numbers, Complex values, or a mix of both.
 local function FFT(v)
     assert(type(v) == "table" and #v > 0, "FFT: v must be a non-empty vector.")
@@ -939,7 +996,7 @@ local function FFT(v)
     return fft_recursive(v, -1)
 end
 
--- Inverse FFT: v_n = (1/N) * sum_k V_k * e^(+i*2*pi*k*n/N), recovering the
+-- [FFT] Inverse FFT: v_n = (1/N) * sum_k V_k * e^(+i*2*pi*k*n/N), recovering the
 -- original (generally Complex-valued) sequence a forward FFT(v) produced.
 -- Same power-of-2 length restriction as FFT, for the same reason.
 local function IFFT(V)
@@ -954,7 +1011,7 @@ local function IFFT(V)
     return result
 end
 
--- Row-reduces a copy of the matrix (Gaussian elimination with partial
+-- [Systems] Row-reduces a copy of the matrix (Gaussian elimination with partial
 -- pivoting) and counts the pivots found. Works for non-square matrices too.
 local function Rank(matriz)
     assert(type(matriz) == "table" and #matriz > 0 and type(matriz[1]) == "table" and #matriz[1] > 0,
@@ -983,7 +1040,7 @@ local function Rank(matriz)
     return rank
 end
 
--- Gauss-Jordan elimination on [matrix | identity] with partial pivoting.
+-- [Systems] Gauss-Jordan elimination on [matrix | identity] with partial pivoting.
 local function Inverse(matriz)
     local n = #matriz
     assert(n == #matriz[1], "Inverse: matrix must be square.")
@@ -1037,7 +1094,7 @@ local function Inverse(matriz)
     return C
 end
 
--- Solves Ax = b via Gaussian elimination with partial pivoting and back
+-- [Systems] Solves Ax = b via Gaussian elimination with partial pivoting and back
 -- substitution: O(n^3) and numerically far more stable than expanding
 -- Cramer's rule for anything beyond 2x2/3x3 systems, so that's what's used
 -- here. `b` is a flat vector, not a matrix.
@@ -1085,7 +1142,7 @@ local function Solve(A, b)
     return x
 end
 
--- Modified Gram-Schmidt QR decomposition of a REAL square matrix (Q
+-- [Eigen] Modified Gram-Schmidt QR decomposition of a REAL square matrix (Q
 -- orthonormal, R upper triangular). Internal helper for Eigenvalues/
 -- Eigenvectors. Deliberately real-only: correct QR for complex matrices
 -- needs a conjugated ("Hermitian") Gram-Schmidt, which isn't implemented
@@ -1145,6 +1202,7 @@ local function qr_decompose(mat)
     return Q, R
 end
 
+-- [Eigen]
 local function assert_real_matrix(matriz, fn_name)
     for i = 1, #matriz do
         for j = 1, #matriz[i] do
@@ -1156,7 +1214,7 @@ local function assert_real_matrix(matriz, fn_name)
     end
 end
 
--- Unshifted QR algorithm: iterating A <- R*Q (from A's QR decomposition)
+-- [Eigen] Unshifted QR algorithm: iterating A <- R*Q (from A's QR decomposition)
 -- converges A towards a quasi-triangular (real Schur) form. Any diagonal
 -- entry whose subdiagonal neighbor vanished is a converged real eigenvalue.
 -- A 2x2 block that refuses to converge encodes a complex-conjugate
@@ -1222,7 +1280,7 @@ local function Eigenvalues(matriz, max_iter, tol)
     return eigenvalues
 end
 
--- Same iteration as Eigenvalues, additionally accumulating the orthogonal
+-- [Eigen] Same iteration as Eigenvalues, additionally accumulating the orthogonal
 -- factors Q_total = Q_1 * Q_2 * ... ; its columns converge to the
 -- eigenvectors. Rigorously guaranteed for symmetric matrices; treat the
 -- vectors as approximate for general (non-symmetric) matrices. For a matrix
@@ -1268,7 +1326,7 @@ local function Eigenvectors(matriz, max_iter, tol)
     return eigenvalues, Q_total
 end
 
--- Modified Gram-Schmidt: takes a matrix whose ROWS are a (possibly linearly
+-- [Eigen] Modified Gram-Schmidt: takes a matrix whose ROWS are a (possibly linearly
 -- dependent, possibly Complex-valued) set of input vectors, and returns a
 -- matrix whose rows are an orthonormal basis for their span -- using the
 -- Hermitian inner product (Conjugate(qi) . v) for the projection
@@ -1318,7 +1376,7 @@ local function GRAM_SCH(vectores, tol)
     return basis, skipped
 end
 
--- Rayleigh quotient iteration: refines a user-supplied seed vector into an
+-- [Eigen] Rayleigh quotient iteration: refines a user-supplied seed vector into an
 -- eigenvalue/eigenvector estimate. Starting from mu_0 = Rayleigh(v0), each
 -- step solves (A - mu*I) v_new = v for a new direction and re-normalizes;
 -- this converges locally cubically fast once close enough to a genuine
