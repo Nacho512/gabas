@@ -409,18 +409,26 @@ local function svd_core(A, opts)
         end
     end
     if alpha == 0 then
-        return Matrix.Eye(m), Matrix.Zeroes(m, n), Matrix.Eye(n)
+        local sv_zero = {}
+        for i = 1, math.min(m, n) do sv_zero[i] = 0 end
+        return Matrix.Eye(m), Matrix.Zeroes(m, n), Matrix.Eye(n), sv_zero
     end
 
-    -- Safe scaling: brings the largest-magnitude entry to 1 before doing
-    -- any arithmetic, so Householder norms/rotations stay well away from
-    -- overflow/underflow regardless of A's own scale; unscaled at the end.
-    local SAFE_MIN, SAFE_MAX = 1e-100, 1e100
-    local scale = 1
-    if alpha < SAFE_MIN or alpha > SAFE_MAX then
-        scale = 1 / alpha
-    end
-    local Ascaled = (scale == 1) and A or Matrix.Scalar_mul(A, scale)
+    -- Safe scaling: brings the largest-magnitude entry to exactly 1 before
+    -- doing any arithmetic, so Householder norms/rotations stay well away
+    -- from overflow/underflow regardless of A's own scale; unscaled at the
+    -- end (Sigma and sv are both divided back by `scale`). This has to be
+    -- unconditional, not just for extreme alpha (say, outside 1e-100 .. 1e100)
+    -- -- householder()'s own zero-vector guard (`r < Core.EPSILON`, with
+    -- Core.EPSILON = 1e-9, this module's general "close enough to zero"
+    -- constant, not machine epsilon) is an ABSOLUTE threshold, so any A left
+    -- unscaled with entries already below ~1e-9 -- nothing exotic, just a
+    -- matrix of small numbers -- would silently misfire that guard and
+    -- corrupt the whole bidiagonalization. Found via SVD_truncated's own
+    -- scaling test (sv(cA) should equal |c|*sv(A) for any c, including
+    -- c=1e-10): singular values came back up to 45% off before this fix.
+    local scale = 1 / alpha
+    local Ascaled = Matrix.Scalar_mul(A, scale)
 
     -- Core algorithm assumes "tall" (rows >= cols); for a wide A, solve
     -- for A^H instead (now tall) and un-transpose the result: if
@@ -677,6 +685,28 @@ local function SVD_truncated(A, k, opts)
         "SVD_truncated: k must be an integer with 1 <= k <= min(m,n) (= " .. p .. ").")
 
     local r = numerical_rank(sv, #U, #V, opts.tol)
+
+    -- Advisory, not correctness: k==p or k==r are both perfectly valid calls
+    -- (the assembly below still runs and still returns a correct A_k), but
+    -- either one means a different function in this same family already
+    -- does the same job without making the caller supply k by hand --
+    -- worth flagging *before* the work happens, not just after something
+    -- goes wrong. elseif means at most one advisory fires (k==p implies the
+    -- SVD_economy suggestion is the more direct fit even when it also
+    -- happens to equal r).
+    if k == p then
+        io.stderr:write(
+            "SVD_truncated: k equals min(m,n), so no components are actually " ..
+            "being discarded -- SVD_economy(A) returns the same result " ..
+            "without having to pass k at all; consider that instead.\n")
+    elseif k == r then
+        io.stderr:write(string.format(
+            "SVD_truncated: k=%d equals A's numerically-estimated rank; " ..
+            "SVD_reduced(A) finds that same r on its own, instead of you " ..
+            "having to know or guess it in advance; consider that instead " ..
+            "unless you specifically want a fixed k regardless of A's rank.\n", k))
+    end
+
     if k > r then
         io.stderr:write(string.format(
             "SVD_truncated: k=%d exceeds A's numerically-estimated rank (r=%d); " ..
