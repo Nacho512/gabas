@@ -380,24 +380,15 @@ local function svd_core(A, opts)
             "SVD: A must be rectangular -- every row must have the same length.")
         for j = 1, n do
             local v = A[i][j]
-            if is_complex(v) then
-                assert(type(v.re) == "number" and type(v.im) == "number" and
-                    v.re == v.re and v.im == v.im and
-                    v.re ~= math.huge and v.re ~= -math.huge and
-                    v.im ~= math.huge and v.im ~= -math.huge,
-                    "SVD: entry A[" .. i .. "][" .. j .. "] is not finite (NaN/Inf).")
-            else
-                assert(type(v) == "number",
-                    "SVD: entry A[" .. i .. "][" .. j .. "] must be a number or a Complex value.")
-                assert(v == v and v ~= math.huge and v ~= -math.huge,
-                    "SVD: entry A[" .. i .. "][" .. j .. "] is not finite (NaN/Inf).")
-            end
+            assert(is_complex(v) or type(v) == "number",
+                "SVD: entry A[" .. i .. "][" .. j .. "] must be a number or a Complex value.")
+            assert(Core.is_finite_scalar(v),
+                "SVD: entry A[" .. i .. "][" .. j .. "] is not finite (NaN/Inf).")
         end
     end
     opts = opts or {}
     local max_iter = opts.max_iter or 500
-    assert(type(max_iter) == "number" and max_iter >= 1 and max_iter == math.floor(max_iter),
-        "SVD: opts.max_iter must be a positive integer.")
+    Core.assert_positive_integer(max_iter, "SVD: opts.max_iter")
 
     -- All-zero matrix: quick exit, per the spec's Phase 2 -- also sidesteps
     -- a division by zero in the scaling step below.
@@ -606,12 +597,18 @@ end
 -- Numerical rank from an already-sorted-descending sv: how many clear a
 -- tolerance scaled to the matrix's own size and largest singular value
 -- (max(m,n) * machine epsilon * sv[1] -- the same convention Rank()/MDet()
--- use elsewhere in this module, and, reassuringly, exactly the formula in
--- the reference material this was built from: "tolerance = MAXIMUM(m,n) x
--- largest_value x machine_epsilon"). sv sorted descending means the
--- singular values clearing tol are always a leading run, so the first one
--- that doesn't clear it ends the count. Shared by SVD_reduced and
--- SVD_truncated below.
+-- use elsewhere in this module). sv sorted descending means the singular
+-- values clearing tol are always a leading run, so the first one that
+-- doesn't clear it ends the count. Used by SVD_truncated below.
+--
+-- NOTE (left as a note per Nacho's own "don't chase every edge case, just
+-- flag it" instruction, rather than fixed here): despite the comment this
+-- carried before SVD_reduced's rewrite below, this uses Core.EPSILON
+-- (1e-9, this module's coarse general-purpose "close enough to zero"
+-- constant, tuned for things like pivot detection) as if it were machine
+-- epsilon (~2.22e-16) -- it isn't. SVD_reduced below no longer makes this
+-- mistake (see MACHINE_EPSILON/rank_and_tau); SVD_truncated's call here
+-- still does, unchanged, out of scope for this pass.
 local function numerical_rank(sv, m, n, tol)
     if tol == nil then
         tol = math.max(m, n) * Core.EPSILON * (sv[1] or 0)
@@ -627,21 +624,101 @@ local function numerical_rank(sv, m, n, tol)
     return r
 end
 
+-- IEEE-754 double-precision machine epsilon (~2.22e-16) -- NOT Core.EPSILON
+-- (see the note on numerical_rank above; conflating the two is exactly
+-- what caused the scaling bug fixed earlier in svd_core's safe-scaling
+-- step, so it gets its own name here rather than reusing Core.EPSILON).
+local MACHINE_EPSILON = 2.2204460492503131e-16
+
+-- Numerical-rank threshold and rank, per the reference spec this was built
+-- from: tau = atol + rtol*sv[1], defaulting to rtol = max(m,n)*
+-- MACHINE_EPSILON and atol = 0 when not supplied (equivalent to the
+-- classic "tolerance = max(m,n) * machine_epsilon * largest_singular_value"
+-- rule, generalized with an optional absolute floor for an
+-- application-specific cutoff). r is the count of singular values
+-- strictly greater than tau -- sv sorted descending means that's always a
+-- leading run. Returns both, since SVD_reduced must report tau itself,
+-- not just r.
+local function rank_and_tau(sv, m, n, rtol, atol)
+    if rtol == nil then rtol = math.max(m, n) * MACHINE_EPSILON end
+    if atol == nil then atol = 0 end
+    Core.assert_nonneg_number(rtol, "SVD_reduced: opts.rtol")
+    Core.assert_nonneg_number(atol, "SVD_reduced: opts.atol")
+    local s_max = sv[1] or 0
+    local tau = atol + rtol * s_max
+    assert(Core.is_finite_number(tau),
+        "SVD_reduced: the numerical-rank threshold (tau) could not be calculated.")
+    local r = 0
+    for i = 1, #sv do
+        if sv[i] > tau then
+            r = i
+        else
+            break
+        end
+    end
+    return r, tau
+end
+
 -- Reduced SVD: A = U_r*Sigma_r*V_r^H, U_r (m x r), Sigma_r (r x r),
--- V_r (n x r), r = rank(A) (numerically: how many of the p = min(m,n)
--- singular values clear opts.tol, sv sorted descending so they're always
--- a leading run). Still exact -- unlike Truncated below, r isn't a choice,
--- it's a property of A itself, discovered from its own singular values.
+-- V_r (n x r), r = numerical rank of A (how many of the p = min(m,n)
+-- singular values clear tau = opts.atol + opts.rtol*sv[1], sv sorted
+-- descending so they're always a leading run). Still exact -- unlike
+-- Truncated below, r isn't a choice, it's a property of A itself,
+-- discovered from its own singular values.
+--
+-- opts.method is validated against the 4 names the reference spec lists
+-- ("QR", "DIVIDE_AND_CONQUER", "JACOBI", "AUTO"), but only "QR"/"AUTO"
+-- actually run anything here -- this module has exactly one SVD engine
+-- (Golub-Kahan-Reinsch bidiagonal QR, in svd_core), not a library of
+-- interchangeable ones. "DIVIDE_AND_CONQUER" and "JACOBI" are real,
+-- recognized SVD method names (per the reference material), so they get
+-- their own clear "recognized but not implemented" error rather than
+-- either silently running QR under a different name or an opaque
+-- "bad argument" that doesn't explain the name was valid, just unsupported.
+--
+-- Also returns r and tau (the threshold that produced it) as trailing
+-- values -- same "extend without breaking existing callers" pattern as sv
+-- on plain SVD. And: if r turns out to equal p = min(m,n) (nothing was
+-- actually below tau, so nothing got dropped), this is advisory territory
+-- like SVD_truncated's k==p/k==r messages -- SVD_economy(A) returns that
+-- same result without computing a rank tolerance at all, so it's flagged
+-- (non-fatally, via stderr) before returning.
 local function SVD_reduced(A, opts)
     opts = opts or {}
+    local method = opts.method or "AUTO"
+    Core.validate(method, "one_of", "SVD_reduced: opts.method",
+        {"QR", "DIVIDE_AND_CONQUER", "JACOBI", "AUTO"})
+    assert(method ~= "DIVIDE_AND_CONQUER" and method ~= "JACOBI",
+        "SVD_reduced: opts.method = \"" .. method .. "\" is a recognized SVD method " ..
+        "name, but this module only implements Golub-Kahan-Reinsch bidiagonal QR -- " ..
+        "\"QR\" and \"AUTO\" are the only methods actually available here.")
+
     local U, Sigma, V, sv = svd_core(A, opts)
-    local r = numerical_rank(sv, #U, #V, opts.tol)
+    local p = #sv
+    local r, tau = rank_and_tau(sv, #U, #V, opts.rtol, opts.atol)
+
+    -- r = 0 (A is numerically the zero matrix): the mathematically clean
+    -- answer is an m x 0 / length-0 / 0 x n triplet, but this module's
+    -- Matrix representation (nested row-tables) can't hold a genuinely
+    -- 0-width matrix -- exactly the "some languages/libraries don't
+    -- support zero-width matrices" case the reference material flags as
+    -- something to document rather than silently paper over. So: a clear
+    -- hard error instead of a degenerate empty result.
     assert(r >= 1,
-        "SVD_reduced: A is numerically the zero matrix (rank 0) -- a reduced " ..
-        "SVD would have 0 columns, which this module's matrix representation " ..
-        "can't hold; use SVD_economy if you need a shape-only (not " ..
-        "rank-revealing) reduction.")
-    return first_cols(U, r), top_left_block(Sigma, r), first_cols(V, r), first_n(sv, r)
+        "SVD_reduced: A is numerically the zero matrix (rank 0, tau=" .. tau .. ") -- " ..
+        "a reduced SVD would have 0 columns, which this module's matrix " ..
+        "representation can't hold; use SVD_economy if you need a shape-only " ..
+        "(not rank-revealing) reduction.")
+
+    if r == p then
+        io.stderr:write(string.format(
+            "SVD_reduced: A's numerically-estimated rank (r=%d) equals min(m,n); " ..
+            "nothing was actually discarded, so SVD_economy(A) returns the same " ..
+            "result without computing a rank tolerance at all; consider that " ..
+            "instead.\n", r))
+    end
+
+    return first_cols(U, r), top_left_block(Sigma, r), first_cols(V, r), first_n(sv, r), r, tau
 end
 
 -- Truncated SVD: A_k = U_k*Sigma_k*V_k^H, the best rank-k approximation of
@@ -681,8 +758,8 @@ local function SVD_truncated(A, k, opts)
     opts = opts or {}
     local U, Sigma, V, sv = svd_core(A, opts)
     local p = #sv
-    assert(type(k) == "number" and k == math.floor(k) and k >= 1 and k <= p,
-        "SVD_truncated: k must be an integer with 1 <= k <= min(m,n) (= " .. p .. ").")
+    Core.assert_positive_integer(k, "SVD_truncated: k")
+    assert(k <= p, "SVD_truncated: k must not exceed min(m,n) (= " .. p .. ").")
 
     local r = numerical_rank(sv, #U, #V, opts.tol)
 
