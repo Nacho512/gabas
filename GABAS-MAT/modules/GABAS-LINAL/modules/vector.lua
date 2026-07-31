@@ -48,9 +48,29 @@ local function VNormalize(v, p)
     return C
 end
 
+-- Cross product: only defined for two 3-dimensional vectors -- the unique
+-- vector orthogonal to both v1 and v2, with magnitude ||v1||*||v2||*sin(theta)
+-- and orientation given by the right-hand rule. The formula is pure
+-- +/-/* on entries, so it works unchanged for Complex-valued vectors too,
+-- same as every other function in this module.
+local function Cross_product(v1, v2)
+    assert(type(v1) == "table" and #v1 == 3, "Cross_product: v1 must be a 3-dimensional vector.")
+    assert(type(v2) == "table" and #v2 == 3, "Cross_product: v2 must be a 3-dimensional vector.")
+    for i = 1, 3 do
+        Core.assert_finite_scalar(v1[i], "Cross_product: v1[" .. i .. "]")
+        Core.assert_finite_scalar(v2[i], "Cross_product: v2[" .. i .. "]")
+    end
+    return {
+        v1[2] * v2[3] - v1[3] * v2[2],
+        v1[3] * v2[1] - v1[1] * v2[3],
+        v1[1] * v2[2] - v1[2] * v2[1],
+    }
+end
+
 return {
     VTrace = VTrace,
     Vdot = Vdot,
     VNorm = VNorm,
     VNormalize = VNormalize,
+    Cross_product = Cross_product,
 }
