@@ -79,5 +79,4 @@ end
 return {
     FFT = FFT,
     IFFT = IFFT,
-    I_FFT = IFFT,
 }
