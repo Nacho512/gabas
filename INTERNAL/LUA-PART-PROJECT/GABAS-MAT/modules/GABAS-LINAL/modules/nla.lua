@@ -44,7 +44,15 @@ local function Rayleigh(matriz, v0, max_iter, tol)
     assert(Vector.VNorm(v0) > 0, "Rayleigh: seed vector must not be the zero vector.")
     max_iter = max_iter or 100
     Core.assert_positive_integer(max_iter, "Rayleigh: max_iter")
-    tol = tol or 1e-12
+    -- Claude: was 1e-12 -- tighter than what the residual check below can
+    -- actually achieve in double precision. Gaussian elimination + repeated
+    -- normalization typically bottoms out around 1e-9 for a genuinely
+    -- converged eigenpair (found via a real test: diag(2,3) seeded near an
+    -- eigenvector hit exactly mu=2, residual ~1e-9, and used to be rejected
+    -- as "not converged" by the old 1e-12 bar). 1e-8 leaves headroom above
+    -- that floor across different matrices/conditioning, while still being
+    -- tighter than the 1e-6-ish tolerances a casual caller would ever need.
+    tol = tol or 1e-8
     Core.assert_nonneg_number(tol, "Rayleigh: tol")
 
     local v = Vector.VNormalize(v0)
@@ -71,10 +79,27 @@ local function Rayleigh(matriz, v0, max_iter, tol)
             error("Rayleigh: shifted solve failed before convergence: " .. message, 0)
         end
         v = Vector.VNormalize(v_next)
-        local mu_next = Vector.Vdot(Complex.Conjugate(v), mat_vec(matriz, v))
-        local delta = mu_next - mu
-        mu = mu_next
-        if Core.cabs(delta) < tol then
+        mu = Vector.Vdot(Complex.Conjugate(v), mat_vec(matriz, v))
+        -- Claude: checking only "did mu stop changing" is not a safe
+        -- convergence criterion -- it has a spurious fixed point whenever the
+        -- seed lands on a symmetric combination of two eigenvectors with
+        -- distinct eigenvalues (a saddle point of the Rayleigh-quotient
+        -- functional on the unit sphere): mu stabilizes between iterations,
+        -- but v keeps bouncing between two non-eigenvector directions and
+        -- never actually satisfies Av=mu*v. Found via a real test case:
+        -- diag(2,3) seeded with (1,1) used to report converged=true at
+        -- mu=2.5 (not an eigenvalue of this matrix at all), with a residual
+        -- of 0.5 -- nowhere near converged. The residual ||Av-mu*v|| is the
+        -- mathematically meaningful criterion, so check that directly
+        -- instead (same is_near_zero pattern already used in the singular-
+        -- shift branch above, for consistency).
+        local Av = mat_vec(matriz, v)
+        local residual = 0
+        for i = 1, n do
+            residual = math.max(residual, Core.cabs(Av[i] - mu * v[i]))
+        end
+        local scale = math.max(Core.cabs(mu), 1)
+        if Core.is_near_zero(residual, scale, tol, tol) then
             converged = true
             break
         end
