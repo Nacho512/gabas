@@ -31,7 +31,7 @@ Return only: root cause, concise summary, files changed, test results, and remai
 
 11. BE CONCISE; DO NOT NARRATE ROUTINE FILE INSPECTION.
 
-13. Whenever I ask you something, or when reporting back after an inspection or a fixing session, ANSWER IN AT MOST 300 WORDS; NO EXCEPTIONS.\n\n
+13. Whenever I ask you something, or when reporting back after an inspection or a fixing session, ANSWER IN AT MOST 300 WORDS; NO EXCEPTIONS.
 
 14. NEVER PASTE ENTIRE FILES IN THE RESPONSE; EDIT THE FILES DIRECTLY AND SUMMARIZE THE PATCH.
 
