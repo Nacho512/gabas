@@ -355,7 +355,11 @@ end
 --       that singular values are sorted descending nonneg -- the spec's
 --       own optional Phase 7/Step 10 verification, exposed as an opt-in
 --       rather than paid on every call.
--- Returns U (m x m), Sigma (m x n), V (n x n).
+-- Returns U (m x m), Sigma (m x n), V (n x n), sv (flat array of the
+-- min(m,n) singular values, already sorted descending -- the same
+-- Sigma[i][i] values, handed back the way Eigenvalues() hands back
+-- eigenvalues, so comparing/thresholding them doesn't require digging
+-- them out of Sigma's diagonal yourself).
 local function SVD(A, opts)
     assert(type(A) == "table" and #A > 0 and type(A[1]) == "table" and #A[1] > 0,
         "SVD: A must be a non-empty matrix (a table of non-empty row-tables).")
@@ -475,6 +479,14 @@ local function SVD(A, opts)
     local Sigma = Matrix.Zeroes(mw, nw)
     for i = 1, nw do Sigma[i][i] = dsorted[i] / scale end
 
+    -- Flat, already-sorted-descending singular values -- min(m,n) of them,
+    -- the same convention Eigenvalues() already uses (a plain array, not
+    -- values buried on a matrix diagonal you'd have to dig out yourself).
+    -- Unaffected by the tall/wide transpose trick below: the singular
+    -- values themselves don't change, only which of U/V they came from.
+    local sv = {}
+    for i = 1, nw do sv[i] = dsorted[i] / scale end
+
     if transposed then
         U, V = V, U
         Sigma = Matrix.T(Sigma)
@@ -517,7 +529,7 @@ local function SVD(A, opts)
             "SVD: verification failed -- a singular value came out negative.")
     end
 
-    return U, Sigma, V
+    return U, Sigma, V, sv
 end
 
 return {
