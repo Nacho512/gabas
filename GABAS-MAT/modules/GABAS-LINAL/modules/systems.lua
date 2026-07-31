@@ -31,9 +31,21 @@ local function Rank(matriz)
 end
 
 -- Gauss-Jordan elimination on [matrix | identity] with partial pivoting.
+-- Complex entries work unchanged (division/subtraction below flow through
+-- Complex's own operator overloads); pivoting uses Core.cabs, which
+-- already handles both real and Complex magnitudes.
 local function Inverse(matriz)
+    assert(type(matriz) == "table" and #matriz > 0 and type(matriz[1]) == "table" and #matriz[1] > 0,
+        "Inverse: matriz must be a non-empty matrix (a table of non-empty row-tables).")
     local n = #matriz
     assert(n == #matriz[1], "Inverse: matrix must be square.")
+    for i = 1, n do
+        assert(type(matriz[i]) == "table" and #matriz[i] == n,
+            "Inverse: matriz must be rectangular -- every row must have length " .. n .. ".")
+        for j = 1, n do
+            Core.assert_finite_scalar(matriz[i][j], "Inverse: entry matriz[" .. i .. "][" .. j .. "]")
+        end
+    end
 
     local aug = {}
     for i = 1, n do
