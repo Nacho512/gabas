@@ -23,7 +23,7 @@
 % the rest ({2026/07/29}{1.0}{v0.1 ...}) was leftover text LaTeX tried to
 % typeset before \begin{document}, which is exactly what "Missing
 % \begin{document}" means. Fixed to the standard LaTeX2e form.
-\ProvidesPackage{gabas}[2026/07/29 v1.0 Simple multi-image insertion for Nacho's Sadiku project]
+\ProvidesExplPackage{gabas}{2026/07/29}{V0.2}{DESCRIPTION}
 
 \RequirePackage{graphicx}
 \RequirePackage{float}
@@ -32,13 +32,17 @@
 \RequirePackage{xparse}
 \RequirePackage{expl3}
 \RequirePackage{xcolor}
-% BUGFIX (Claude): there is no "l3graphics" package on CTAN/TeX Live -- that
-% \RequirePackage line failed to find the file and hard-stopped compilation
-% for every user. \graphics_get_pagecount:nN (used below for multi-page PDF
-% detection) is not a separate package at all: it ships directly inside the
-% l3kernel programming layer, so it's already available the moment
-% \RequirePackage{expl3} above has loaded. Nothing extra needs to be
-% required for it.
+% BUGFIX (Claude, corrected 2026/07/30): an EARLIER fix on this branch
+% claimed \graphics_get_pagecount:nN ships inside l3kernel -- it does
+% not. There is no such function anywhere in l3kernel or any other CTAN
+% package (confirmed by grepping the full TeX Live 2025 tree). The call
+% site below was calling a function that plain doesn't exist, which
+% means multi-page PDF handling on this branch has never actually run
+% at all ("Undefined control sequence" the instant a multi-page PDF is
+% used). Replaced with a real implementation, \__cn_get_pagecount:nN,
+% defined further below using the pdfTeX primitives \pdfximage +
+% \pdflastximagepages, resolved against \l_auto_paths_seq since \pdfximage
+% (unlike \includegraphics) does not consult \graphicspath on its own.
 \RequirePackage{pdfpages}
 
 % BECAUSE I WANTED MY NON TRIVIAL, REAL-LIFE USABLE AND ACTUALLLY USEFUL ''\INSRTIMAGES'' FUNCTION TO BE REALLY AGILE AND NOT HAVING TO SPECIFY EACH IMAGE FED TO HER THE IMAGE'S WHOLE PATH, AND BECAUSE I WANTED THIS \INSRTIMAGES FUNCTION TO BE ABLE TO RECEIVE, WITHOUT ANY PROBLEM, ANY IMAGE FROM ANY SOURCE FOLDER WITHIN MY LATEX PROJECT, I CODED THIS  ''\REGISTERCHAPTERPATHS' FUNCTION FIRST BEFORE PROCEEDING TO THE IMAGES FUNCTION EXERCISE. I COULD HAVE CODED THIS FUNCTION'S CODE WITHIN MY '\INSRTIMAGES'' FUNCTION, OR EVEN BETTER, I COULD HAVE INVOKED THIS  ''\REGISTERCHAPTERPATHS' FUNCTION WITHIN MY ''\INSRTIMAGES'' FUNCTION, BUT I REFRAINED FROM DOING SO BECAUSE I WANT MY ''\INSRTIMAGES'' FUNCTION, AS IMPERFECT AS IT IS NOW, TO BE A UNIVERSAL LATEX FUNCTION, AIMING AT A PROFESSIONAL LEVEL, AND MY ''\REGISTERCHAPTERPATHS' FUNCTION IS SPECIFIC TO MY CURRENT SAKIKU' SEFER SOLUTIONS LATEX PROKECT. HOWEVER, I WOULD LOVE YOU TO TEACH ME HOW TO CODE A FUNCTION SIMILAR TO THIS ''\REGISTERCHAPTERPATHS' FUNCTION THAT IS ACTUALLY UNIVERSAL AND WHICH A USER WHO EVENTUALLLY USES MY FUTURE LATEX PACKAGE, CAN USE ON OVERLEAF WITHOUT PROBLEMS AT ALL.
@@ -50,6 +54,12 @@
 \seq_new:N \l_auto_paths_seq
 \seq_new:N \l_img_names_seq
 \seq_new:N \l_img_captions_seq
+
+% (Claude) used by \GlobalImageSource below.
+\ior_new:N \g_cn_globalsource_ior
+\iow_new:N \g_cn_globalsource_iow
+\tl_new:N \l_cn_globalsource_script_tl
+\tl_new:N \l_cn_globalsource_data_tl
 
 % =============================================================
 % AND HERE IS WHERE THE BOY FO THE ''\REGISTERCHAPTERPATHS' FUNCTIO ACTUALLY BEGINS. AS I HAVE ALREADY STATED, IT IS SPECIFIC TO MY CURRENT LATEX PROJECT, AND ACCORDING TO WHAT I READ ONLINE, THIS KIND OF FUNCTIONS ARE CALLED 'DYNAMIC PATH REGISTRATION FUNCTIONS'; I WOULD LOVE YOUR EXPLANATION ON THIS. IT IS NOTEWORTHY TO SAY THAT, IF I AM NOT MISTAKEN, ONCE MAIN.TEX LOADS THE  SADIKU-SOLUTIONS.STY MODUL [IN CASE YOU GREEN LIGHT ME TO INCLUDE THESE CODE AND FUNCTIONS WITHIN OUR  SADIKU-SOLUTIONS.STY MODULE] THIS FUNCTION ACTS AUTOMATICALLY, WITHOUT THE USER HAVING TO INVOKE IT. I CODED IT SO THAT IT HAS TO BE SUMMONED ONLY IN CASE YOU WANT TO VARY THE HARD CODED DEFAULT PARAMETER OF 10 [10 STANDS FOR THE 10 CHAPTERS WITHIN THE SADIKU'S SEFER AND WITHIN MY PROJECT].
@@ -100,6 +110,100 @@
   \RegisterChapterPaths
 }
 
+% =====================================================================
+% \GLOBALIMAGESOURCE (Claude): the "actually universal" equivalent of
+% \RegisterChapterPaths requested in GABAS-LATEX-MODULE-CONTINUOUS-LOG.txt
+% ("I would like to develop a universal equivalent of this function,
+% which identifies all the image source folders within a LaTeX project
+% [even if such project is hosted on Overleaf]"). Instead of a
+% hard-coded chapter-numbering scheme, this walks the ENTIRE project
+% directory tree from the current compile directory (the project root,
+% both locally and on Overleaf) and auto-detects every folder that
+% contains at least one file with a recognized image extension -- the
+% same pdf/png/jpg/jpeg/eps set \insertimages itself accepts -- then
+% registers all of them via \graphicspath, exactly like
+% \RegisterChapterPaths does with its hard-coded list.
+%
+% TeX has NO primitive to list a directory's contents -- that's a hard
+% engine limitation, not an expl3 gap. The only way to do it is to
+% shell out. Confirmed on the user's own Overleaf project: shell-escape
+% (\write18) IS enabled there and DOES allow running python3 with no
+% extra package (the same mechanism already used for the OCR feature),
+% so this reuses it:
+%   1. Write a small python3 script to disk via \iow (TeX's own file
+%      writer -- this step needs no shell-escape at all).
+%   2. Run it with \sys_shell_now:x (a thin \write18 wrapper). It walks
+%      the project tree, prunes hidden/VCS/cache folders as it goes,
+%      finds every folder containing a matching image file, and writes
+%      one folder path per line to a plain-text data file. THIS step
+%      needs shell-escape.
+%   3. Read that data file back with \ior_str_map_inline:Nn, which reads
+%      each line as raw "str" content (not re-tokenized TeX/expl3 code)
+%      -- this sidesteps any catcode trouble from folder names
+%      containing "_" or other special characters.
+%
+% If shell-escape is off, or python3 isn't installed, step 2 silently
+% no-ops (pdfTeX's own \write18 behavior), so the data file is never
+% (re)created, step 3 finds nothing, and this falls back to registering
+% just the project root ("./"), with a console warning. KNOWN
+% LIMITATION: if an EARLIER compile successfully produced a data file
+% and a LATER compile then has shell-escape disabled, this will
+% silently reuse that stale data instead of warning -- deleting the old
+% file first would itself need shell-escape, so there is no fully
+% portable way to detect that specific case.
+%
+% NOT wired into \AddToHook{begindocument} the way \RegisterChapterPaths
+% is -- deliberately left as an explicit, opt-in call for now.
+% \RegisterChapterPaths is still what auto-registers paths on every
+% compile of the user's live SADIKU-solutions project; swapping the
+% automatic hook over to \GlobalImageSource should be a deliberate
+% choice made once it's been test-compiled there, not a silent side
+% effect of updating gabas.sty.
+% =====================================================================
+\msg_new:nnn { circuitnacho } { globalimagesource-no-scan }
+  { \string\GlobalImageSource~could~not~auto-detect~any~image~folders~(shell-escape~and/or~python3~may~be~unavailable~in~this~compile~environment).~Only~the~project~root~("./")~was~registered~as~an~image~source;~add~folders~manually~via~\string\graphicspath,~or~use~\string\RegisterChapterPaths~if~applicable. }
+
+\NewDocumentCommand{\GlobalImageSource}{ }
+{
+  \tl_set:Nx \l_cn_globalsource_script_tl { \jobname-gabas-scan.py }
+  \tl_set:Nx \l_cn_globalsource_data_tl   { \jobname-gabas-globalpaths.dat }
+
+  \iow_open:Nn \g_cn_globalsource_iow \l_cn_globalsource_script_tl
+  \iow_now:Nn \g_cn_globalsource_iow { import os }
+  \iow_now:Nn \g_cn_globalsource_iow { exts = {"pdf", "png", "jpg", "jpeg", "eps"} }
+  \iow_now:Nn \g_cn_globalsource_iow { excl = {".git", ".svn", "__pycache__"} }
+  \iow_now:Nn \g_cn_globalsource_iow { out = [] }
+  \iow_now:Nn \g_cn_globalsource_iow { for root, dirs, files in os.walk("."): }
+  \iow_now:Nn \g_cn_globalsource_iow { dirs[:] = [d for d in dirs if d not in excl and not d.startswith(".")] }
+  \iow_now:Nn \g_cn_globalsource_iow { hit = any(("." in n and n.rsplit(".", 1)[-1].lower() in exts) for n in files) }
+  \iow_now:Nn \g_cn_globalsource_iow { if root != "." and hit: out.append(root.replace(chr(92), "/") + "/") }
+  \iow_now:Nn \g_cn_globalsource_iow { out = sorted(set(out)) }
+  \iow_now:Nx \g_cn_globalsource_iow { fh = open("\l_cn_globalsource_data_tl", "w", encoding="utf-8") }
+  \iow_now:Nn \g_cn_globalsource_iow { fh.write(chr(10).join(out)) }
+  \iow_now:Nn \g_cn_globalsource_iow { fh.close() }
+  \iow_close:N \g_cn_globalsource_iow
+
+  \sys_shell_now:x { python3~\l_cn_globalsource_script_tl }
+
+  \seq_clear:N \l_auto_paths_seq
+  \seq_put_right:Nn \l_auto_paths_seq { ./ }
+
+  \exp_args:NV \file_if_exist:nTF \l_cn_globalsource_data_tl
+    {
+      \ior_open:Nn \g_cn_globalsource_ior \l_cn_globalsource_data_tl
+      \ior_str_map_inline:Nn \g_cn_globalsource_ior
+        {
+          \tl_if_empty:nF { ##1 } { \seq_put_right:Nn \l_auto_paths_seq { ##1 } }
+        }
+      \ior_close:N \g_cn_globalsource_ior
+    }
+    {
+      \msg_warning:nn { circuitnacho } { globalimagesource-no-scan }
+    }
+
+  \exp_args:NV \graphicspath \l_auto_paths_seq
+}
+
 % ALL I KNOW ABOUT THIS FINAL INSTRUCTION/COMMAND/SENTENCE [?] IS THAT, OUT OF COMMON SENSE, IT CLOSES WHAT THE COMMAND '\EXPSYNTAXON'' OPENED AT THE VERY BEGINNING OF THIS FUNCTION'S DEFINITION. PLEASE EXPAIN.
 \ExplSyntaxOff
 
@@ -134,6 +238,11 @@
 \seq_new:N \l_cn_captions_seq
 \seq_new:N \l_tmp_ext_seq
 
+\tl_new:N \l_cn_resolved_path_tl % (Claude) used by \__cn_get_pagecount:nN
+\tl_new:N \l_cn_safe_display_tl % (Claude) see \__cn_safe_display:n below
+\tl_new:N \l_cn_underscore_tl % (Claude) a real catcode-8 "_" token, see \__cn_safe_display:n
+\bool_new:N \l_cn_file_found_tmp_bool % (Claude) scratch, see \__cn_get_pagecount:nN
+
 \int_new:N \l_cn_pdf_index_int
 \int_new:N \g_cn_compilation_int
 \int_new:N \g_cn_total_images_int
@@ -161,7 +270,7 @@
 % becomes 2 -- confirmed with a standalone test) instead of telling the
 % user they typed something wrong. The key now captures the RAW text
 % here and is validated with l3fp before ever reaching \l_cn_cols_int
-% -- see the validation block inside \InsertImages below.
+% -- see the validation block inside \insertimages below.
 \tl_new:N \l_cn_cols_raw_tl
 \fp_new:N \l_cn_cols_fp
 \fp_new:N \l_cn_cols_round_fp
@@ -185,7 +294,7 @@
 \msg_new:nnn { circuitnacho } { hard-halt-error }
   { Critical~Logic~or~Boundary~Error~Detected!~Check~the~PDF~canvas~for~details. }
 % FEATURE (Claude): dedicated, detailed messages for the `columns` decimal
-% guard (see the validation block inside \InsertImages). These print on
+% guard (see the validation block inside \insertimages). These print on
 % the console/log via \msg_error:nnn, NOT as an extra bullet inside the
 % critical-guard box: every bullet added to that box beyond the original
 % [MATH ERROR] one was confirmed, by testing, to break with a "Missing $
@@ -199,6 +308,27 @@
   { The~`columns'~sub-argument~must~be~a~positive~whole~number,~but~you~entered~columns=#1,~which~is~zero,~negative,~or~a~fraction~of~a~column. }
 \msg_new:nnn { circuitnacho } { invalid-columns-non-integer }
   { The~`columns'~sub-argument~must~be~a~whole~number~(no~decimal~point),~but~you~entered~columns=#1. }
+% FEATURE (Claude): same reasoning as the two messages above -- the
+% pre-existing \g_cn_diagnostic_manifest_tl route for "INVALID EXTENSION"
+% was confirmed broken (crashes with "Undefined control sequence" via the
+% calc package the instant it actually prints; a standalone test with a
+% real bad-extension image reproduces this on totally unmodified code).
+% \msg_error is the proven-working alternative.
+\msg_new:nnn { circuitnacho } { invalid-extension }
+  { The~image~`#1'~has~an~unsupported~extension~(`.#2').~Allowed~extensions~are~pdf,~png,~jpg,~jpeg~and~eps~(case-insensitive). }
+% FEATURE (Claude): the illegal-character guard's own visual box tried to
+% show the offending filename via \texttt{\l_tmpa_tl} -- but a filename
+% flagged here is, BY DEFINITION, one that may contain an illegal
+% character, and if that character is a literal underscore (one of the
+% four this guard checks for), \texttt just tries to typeset a raw
+% catcode-8 subscript character in text mode, which is exactly what
+% "Missing $ inserted" means. Confirmed by testing "my_image.png"
+% straight through \insertimages on unmodified code. \msg_error prints
+% the same raw filename to the console/log safely (also confirmed by a
+% standalone test) since it isn't asking TeX to typeset it as document
+% text.
+\msg_new:nnn { circuitnacho } { illegal-filename }
+  { The~image~name~`#1'~contains~an~illegal~character~(a~space,~underscore,~percent~sign,~or~hash)~and~was~skipped. }
 
 % AND THIS IS NO MORE THAN A SUBROUTINE TO USE THE INVISIBLE .AUX LATEX FILE IN ORDER TO KEEP A GLOBAL COUNTER AND TO KEEP A LOG OF THE IMAGES EMBEDDED, WHICH GROWS WITH EACH INSTANCE OF SUMMONING OF THIS `\INSERTIMAGES'' FUNCTION.
 \cs_if_exist:cTF { savedcompilationcounter }
@@ -216,6 +346,65 @@
   }
 }
 
+% =====================================================================
+% PAGE-COUNT HELPER (Claude): the real replacement for the non-existent
+% \graphics_get_pagecount:nN (see the \RequirePackage comment above).
+% \pdfximage does not consult \graphicspath the way \includegraphics
+% does, so a bare "MYFILE.pdf" living in one of the chapter image
+% folders \RegisterChapterPaths registers would fail with "cannot find
+% image file" if handed to \pdfximage directly (confirmed by testing).
+% This resolves the file against the same \l_auto_paths_seq directory
+% list \RegisterChapterPaths already builds, then reads the page count
+% via the read-only \pdflastximagepages integer. pdfTeX engine only
+% (matches this package's existing pdftex.def / pdfpages dependency).
+% \file_if_exist:nTF (not \IfFileExists) for the same reason as the
+% main guard below: \IfFileExists internally \def's a kernel scratch
+% macro from its branch/condition content, which breaks on any
+% leftover "#"/"##" placeholder still in there.
+% =====================================================================
+\cs_new_protected:Npn \__cn_get_pagecount:nN #1#2 {
+  \tl_clear:N \l_cn_resolved_path_tl
+  \seq_map_inline:Nn \l_auto_paths_seq {
+    \tl_if_empty:NT \l_cn_resolved_path_tl {
+      \bool_set_false:N \l_cn_file_found_tmp_bool
+      \file_if_exist:nT { ##1 #1 } { \bool_set_true:N \l_cn_file_found_tmp_bool }
+      \bool_if:NT \l_cn_file_found_tmp_bool { \tl_set:Nn \l_cn_resolved_path_tl { ##1 #1 } }
+    }
+  }
+  \tl_if_empty:NT \l_cn_resolved_path_tl { \tl_set:Nn \l_cn_resolved_path_tl { #1 } }
+  \pdfximage { \tl_use:N \l_cn_resolved_path_tl }
+  \tl_set:Nx #2 { \the \pdflastximagepages }
+}
+
+% =====================================================================
+% SAFE-DISPLAY HELPER (Claude): filenames come from the user's OWN
+% document, under ordinary document catcodes (NOT this file's
+% \ExplSyntaxOn regime), so an underscore in one may be a genuine
+% catcode-8 (subscript) character -- valid only in math mode.
+% Typesetting it directly via \texttt (as several diagnostic boxes
+% below do) throws "Missing $ inserted." Swaps in a real \textunderscore
+% (built catcode-independently via \exp_not:c, which ALSO protects it
+% from NFSS's own further expansion -- confirmed \tl_set:Ne alone
+% unfolds \textunderscore into unrelated internal font-switching
+% macros instead of leaving a clean, usable token) wherever the
+% filename's own token matches a real catcode-8 "_" (captured once
+% below via a brief \ExplSyntaxOff, so it matches what the user's
+% argument actually contains; comparing needs "V", not "n", to fetch
+% that captured value -- confirmed by direct test).
+% =====================================================================
+\ExplSyntaxOff
+\edef\GABASrealunderscoretl{_}
+\ExplSyntaxOn
+\tl_set:Nx \l_cn_underscore_tl { \GABASrealunderscoretl }
+\cs_new_protected:Npn \__cn_safe_display:n #1 {
+  \tl_clear:N \l_cn_safe_display_tl
+  \tl_map_inline:nn { #1 } {
+    \tl_if_eq:nVTF { ##1 } \l_cn_underscore_tl
+      { \tl_put_right:Ne \l_cn_safe_display_tl { \exp_not:c { textunderscore } } }
+      { \tl_put_right:Nn \l_cn_safe_display_tl { ##1 } }
+  }
+}
+
 % THIS IS A NICE TRICK I LEARNED ON STACKOVERFLOW: YOU CAN CODE A PYTHON-LIKE DICTIONARY IN LATEX; I DID SO HERE TO KEEP ORDER, GOOD PROGRAMMING AND CLARITY WHEN IT COMES TO ALL THE MANY OPTIONAL ARGUMENTS THIS `\INSERTIMAGES'' FUNCTION CAN TAKE AT ONCE.
 \keys_define:nn { circuitnacho } {
   draft     .tl_set:N  = \l_cn_draft_tl,
@@ -225,7 +414,7 @@
   % BUGFIX (Claude): was `.int_set:N = \l_cn_cols_int` -- see the guard
   % declarations above. Capturing the raw text here (instead of letting
   % l3keys silently truncate a decimal straight into the int register)
-  % is what lets \InsertImages validate it and hard-halt with a clear
+  % is what lets \insertimages validate it and hard-halt with a clear
   % message instead of quietly doing the wrong thing.
   columns   .tl_set:N  = \l_cn_cols_raw_tl,
   columns   .initial:n = 3,
@@ -241,22 +430,22 @@
 % THIS WHERE THE `\INSERTIMAGES'' FUNCTION IS DEFINED PROPERLY AND WHERE I WROTE THE CODE OF HER BODY.
 % ==================================================================================
 %
-% AN EXTREMELY DETAILED BREAKDOWN OF AL RHE ARGUMENTS THIS FUNCTION ACCEPTS: '\NewDocumentCommand{\InsertImages}{ s m o }'''
+% AN EXTREMELY DETAILED BREAKDOWN OF AL RHE ARGUMENTS THIS FUNCTION ACCEPTS: '\NewDocumentCommand{\insertimages}{ s m o }'''
 % 
 % 1. [ s ] INVOKING THIS FUNCTION WITH AN ASTERISK [*] RIGHT NEXT TO ITS NAME TOGGLES AN OPTIONAL VARIATION IN THE DEFAULT BEHAVIOR OF THIS `\INSERTIMAGES'' FUNCTION.
-% - USAGE: \InsertImages*{iIMAGE1.png, IMAGE2.pdf,IMAGE3.jpg}
+% - USAGE: \insertimages*{iIMAGE1.png, IMAGE2.pdf,IMAGE3.jpg}
 % - IF IT'S PRESENT, THE IMAGES ARE EMBEDDED IN A HORIZONTAL WAY; IF IT'S ABSENT, THE FUNCTION BEHAVES IN ITS DEFAULT WAY, AND THE IMAGES ARE EMBEDDED ONE BELOW THE PREVIOUS ONE.
 %
 % ***********************************************************************************************************************************************************************************************
 %
 % 2. [ m ] - THE STRING WHICH IS THE LIST OF ALL THE IMAGES TO BE EMBEDDED; OBLIGATIRY PARAMETER; IT IS NOT NECESSARY TO DECLARE THE IMAGES SOURCE PATH, JUST THE IMAGES' NAMES WITH THEIR CORRESPONDING EXTENSIONS, EACH SEPARATED FROM THE NEXT ONE BY A COMMA; IT ISN'T NECESSARY TO USE QUOTES [' '''] WITHIN THE STRING/LIST OF THIS MANDATORY PARAMETER.
-% - USAGE: \InsertImages*{iIMAGE1.png, IMAGE2.pdf,IMAGE3.jpg}{columns=5}
+% - USAGE: \insertimages*{iIMAGE1.png, IMAGE2.pdf,IMAGE3.jpg}{columns=5}
 % * NOTE: THIS FUNCTION HAS ALGORITHMS WHICH VERIFY THAT THE PROVIDED IMAGE NAMES GAVE ONLY LEGAL CHARACTERS, AND ALSO THAT CHECK THAT THE EXTENSIONS OF THE PROVIDED IMAGE NAMES ARE VALID. CLAUDE, PLEASE REVIEW AND OPTIMIZE THIS, AND CHECK IF IT'S NECESSARY TO ADD EXTENSION NAMES TO THE LIST OF ALLOWED ONES; CONSIDER WHETHER THIS IS WORTH CODING ANOTHER DICTIONARY OR NOT.
 %
 % ***********************************************************************************************************************************************************************************************
 %
 % 3. [ o ] - THE KEY-VALUE PARAMETERS, WHICH ARE OPTIONAL, AND WHOSE DEFAULT VALUES THE USER MAY OVERRIDE IF HE WISHES TO.BECAUSE OF CONCERNS OF THE USER HAVING TO TYPE TOO MANY EMPTY []'S TO ARRIVE TO THE PARAMETER HE MIGHT WANT TO MANIPULATE, I CODED IT SO THAT ALL THESE OPTIONAL VARIABLES GO WITHIN A SINGLE `{ }', SEPARATED BY COMMS,  BECAUSE, TECHNICALLY, THEY ARE SUB-ARGUMENTS [I MADE UP THAT TERM] WITHIN A SINGLE OPTIONAL ARGUMENT, AND THEY ARE THE ENTRIES OF THE PYTHON-LIKE DICTIONARY I CODED ABOVE. I THINK THEY MUST BE NAMED WEITH THEIRDICTIONARY DEFINED NAMES IN OTRDER TO BE USED [I'M NOT SURE]. IT IS NOT NECESSARY TO INVOKE THEM ALL, AND THEY CAN BE USED IN AN ORDER DIFFERENT FROM THE CODED HERE THANKS TO THE AFOREMENTIONED DICTIONARY.
-% - Usage: \InsertImages*{iMG1.png, GABATON.jpg, KRAKEN.pdf}{draft=F, size={width;heiight;T}, columns=2, numbering=F, captions= {[''CAPTION1''];[''CAPTION2];[''CAPTION3'']; ;[''CAPTION5']}, pdfpages = {9,3;7,2,5;613}}
+% - Usage: \insertimages*{iMG1.png, GABATON.jpg, KRAKEN.pdf}{draft=F, size={width;heiight;T}, columns=2, numbering=F, captions= {[''CAPTION1''];[''CAPTION2];[''CAPTION3'']; ;[''CAPTION5']}, pdfpages = {9,3;7,2,5;613}}
 %
 % ***********************************************************************************************************************************************************************************************
 %
@@ -338,7 +527,7 @@
 % is an optional argument delimited by SQUARE BRACKETS [ ... ]. Every usage
 % example in the documentation above -- and every real call to this
 % function -- passes the options in CURLY BRACES { ... }, e.g.
-% \InsertImages{...}{columns=2}. Because "{...}" never satisfies an "o"-type
+% \insertimages{...}{columns=2}. Because "{...}" never satisfies an "o"-type
 % slot, #3 was ALWAYS -NoValue- regardless of what was written, so
 % \IfValueT{#3} below never fired: none of draft/size/columns/numbering/
 % captions/pdfpages ever took effect from a real call, and the literal text
@@ -347,13 +536,13 @@
 % Confirmed with a standalone test that "o" silently drops a "{...}"-style
 % argument. xparse's "g" type is exactly "optional argument delimited by a
 % TeX group { }" -- the fix is this one-letter change.
-\NewDocumentCommand{\InsertImages}{ s m g }{%   SIDE NOTE: I ADDED AN  ''%'' RIGHT NEXT TO THIS FUNCTION'S OPENING CURLY BRACKET BECAUSE I SAW MANY LATEX FUNCTIONS ONLINE DEFINED THIS WAY; HOWEVER, I WOULD LIKE TO KNOW THE REASON FOR THIS. NOTICE I DECIDED TO NOT INCLUDE IT IN THE DEFINITION OF THE ''\REGISTERCHAPTERPATHS' FUNCTION, RIGHT NEXT TO THE OPENING CURLY BRACKET OF ITS BODY, AND THAT FUNCTION STILL WORKS JUST FINE..........
+\NewDocumentCommand{\insertimages}{ s m g }{%   SIDE NOTE: I ADDED AN  ''%'' RIGHT NEXT TO THIS FUNCTION'S OPENING CURLY BRACKET BECAUSE I SAW MANY LATEX FUNCTIONS ONLINE DEFINED THIS WAY; HOWEVER, I WOULD LIKE TO KNOW THE REASON FOR THIS. NOTICE I DECIDED TO NOT INCLUDE IT IN THE DEFINITION OF THE ''\REGISTERCHAPTERPATHS' FUNCTION, RIGHT NEXT TO THE OPENING CURLY BRACKET OF ITS BODY, AND THAT FUNCTION STILL WORKS JUST FINE..........
 
 % HERE I DEFONE THAT THE  OPTIONAL SUB-ARGUMENTS ARE ORDER AND POSITION INDEPENDENT [THEY ONLY DEPEND ON BEING SUMMONED BY NAMES JUST PROVIDED ABOVE, IN ACCORDANCE TO THE DICTIONARY ENTRIES
-  % BUGFIX (Claude): without this, an \InsertImages call that omits #3 (or
+  % BUGFIX (Claude): without this, an \insertimages call that omits #3 (or
   % omits some of its keys) silently inherited whatever draft/size/columns/
   % numbering/captions/pdfpages values were left over from the PREVIOUS
-  % \InsertImages call in the document, instead of the documented per-call
+  % \insertimages call in the document, instead of the documented per-call
   % defaults. Re-applying the documented defaults here, before the user's
   % own #3 is applied on top, makes every call start from a clean,
   % documented state, exactly as each sub-argument's "DEFAULT VALUE" above
@@ -554,15 +743,60 @@
     % the correct lowercased string.
     \tl_set:Ne \l_cn_ext_tl { \exp_args:No \str_lowercase:n \l_cn_ext_tl }
     
+    % FEATURE (Claude): added `eps` to the allowed extensions -- this
+    % package's load chain already pulls in epstopdf-base (visible in any
+    % compile log: "Redefining graphics rule for `.eps'"), which makes
+    % pdflatex auto-convert .eps to .pdf on the fly, so \includegraphics
+    % already handles .eps correctly; the extension check was just the one
+    % place not yet aware of it. Deliberately NOT adding more exotic
+    % formats (tiff, bmp, gif, ...): none of those work out of the box
+    % under plain pdflatex without extra conversion tools this package
+    % doesn't require elsewhere, so allowing them here would just move the
+    % failure from a clear "unsupported extension" message to a much more
+    % confusing \includegraphics error later. A flat set of explicit
+    % checks (rather than a full keys/dictionary structure) remains the
+    % right level of tool here: there's no per-extension metadata to
+    % carry, only "is this string in the allowed set."
+    %
+    % BUGFIX (Claude): this used to loop the comparison via
+    % \clist_map_inline:nn { pdf, png, jpg, jpeg, eps } { \str_if_eq:VnT
+    % \l_cn_ext_tl { ####1 } {...} }, which silently FAILED to match a
+    % MIXED-case extension after lowercasing (e.g. an original "Jpg" ->
+    % lowercased to "jpg") against the clist's own "jpg" item, even
+    % though \l_cn_ext_tl printed as "jpg" and matched a literal "jpg"
+    % fine on its own -- confirmed with a standalone test that isolated
+    % \clist_map_inline's substituted loop variable as the specific
+    % point of failure (an all-lowercase or all-uppercase extension, by
+    % contrast, worked fine either way). A real image named e.g.
+    % "Circuit.Jpg" would have been wrongly rejected as an invalid
+    % extension, and -- worse -- \insertimages then crashed outright
+    % trying to report that false rejection. Comparing against each
+    % literal directly, with no clist loop in between, sidesteps the bug
+    % entirely (confirmed fixed by the same standalone test).
+    %
+    % KNOWN REMAINING LIMITATION (Claude, 2026/07/30): with THIS fix
+    % applied, the extension match itself is confirmed correct for
+    % mixed-case extensions (e.g. "Jpg" -> matches "jpg" here). However,
+    % a real file with a mixed-case extension (single capitalized
+    % letter, e.g. "CTRL.Jpg") STILL crashes \insertimages further
+    % downstream, with an unrelated internal LaTeX3 message-system
+    % failure ("A sequence was misused" / "Use of ??? doesn't match its
+    % definition") that traces into l3msg's own internals
+    % (__msg_expandable_error:nn, __prop_item:nnn {seq}), not into
+    % anything in this file directly. All-lowercase and ALL-UPPERCASE
+    % extensions are unaffected and confirmed working end to end. Filed
+    % as its own follow-up (likely the same root cause as the
+    % critical-guard-box "Missing $" bug filed separately) rather than
+    % chased further here.
     \bool_set_false:N \l_tmpb_bool
-    \clist_map_inline:nn { pdf, png, jpg, jpeg } {
-      \str_if_eq:VnT \l_cn_ext_tl { ####1 } { \bool_set_true:N \l_tmpb_bool }
-    }
+    \str_if_eq:VnT \l_cn_ext_tl { pdf }  { \bool_set_true:N \l_tmpb_bool }
+    \str_if_eq:VnT \l_cn_ext_tl { png }  { \bool_set_true:N \l_tmpb_bool }
+    \str_if_eq:VnT \l_cn_ext_tl { jpg }  { \bool_set_true:N \l_tmpb_bool }
+    \str_if_eq:VnT \l_cn_ext_tl { jpeg } { \bool_set_true:N \l_tmpb_bool }
+    \str_if_eq:VnT \l_cn_ext_tl { eps }  { \bool_set_true:N \l_tmpb_bool }
     \bool_if:NF \l_tmpb_bool {
       \bool_gset_true:N \g_cn_invalid_ext_bool
-      \tl_gput_right:Nx \g_cn_diagnostic_manifest_tl {
-        \noexpand\\ \hspace{1em} \bullet ~ \texttt{##1} ~ \noexpand\textbf{[INVALID~EXTENSION:~\l_cn_ext_tl]}
-      }
+      \msg_error:nnxx { circuitnacho } { invalid-extension } { ##1 } { \l_cn_ext_tl }
     }
 
     % BUGFIX (Claude): \IfFileExists is a legacy LaTeX2e macro that dispatches
@@ -580,19 +814,19 @@
     % the nesting level says it should be -- nothing extra to track.
     \file_if_exist:nTF { ##1 } {
       \str_if_eq:eeTF { \l_cn_ext_tl } { pdf } {
-        \graphics_get_pagecount:nN { ##1 } \l_cn_pagecount_tl
+        \__cn_get_pagecount:nN { ##1 } \l_cn_pagecount_tl
         
         \int_compare:nTF { \tl_use:N \l_cn_pagecount_tl > 1 } {
           \int_incr:N \l_cn_pdf_index_int
           \int_compare:nTF { \l_cn_pdf_index_int <= \seq_count:N \l_cn_pdf_blocks_seq } {
             \tl_set:Ne \l_tmpb_tl { \seq_item:Nn \l_cn_pdf_blocks_seq { \l_cn_pdf_index_int } }
-            \seq_set_split:Nnn \l_cn_tmp_pages_seq { , } { \l_tmpb_tl }
+            \seq_set_split:NnV \l_cn_tmp_pages_seq { , } \l_tmpb_tl
             
             \seq_map_inline:Nn \l_cn_tmp_pages_seq {
               \int_compare:nTF { ####1 > \tl_use:N \l_cn_pagecount_tl } {
                 \bool_gset_true:N \g_cn_pdf_overflow_bool
                 \tl_gput_right:Nx \g_cn_diagnostic_manifest_tl {
-                  \noexpand\\ \hspace{1em} \bullet ~ \noexpand\textbf{[OVERFLOW]} ~ \texttt{##1} ~ \noexpand\textit{(Req:~####1,~Max:~\tl_use:N \l_cn_pagecount_tl)}
+                  \noexpand\\ \hspace{1em} \textbullet ~ \noexpand\textbf{[OVERFLOW]} ~ \texttt{##1} ~ \noexpand\textit{(Req:~####1,~Max:~\tl_use:N \l_cn_pagecount_tl)}
                 }
               } {
                 \seq_gput_right:Nx \g_cn_resolved_layout_seq { ##1 }
@@ -602,7 +836,7 @@
           } {
             \bool_gset_true:N \g_cn_pdf_missing_spec_bool
             \tl_gput_right:Nx \g_cn_diagnostic_manifest_tl {
-              \noexpand\\ \hspace{1em} \bullet ~ \texttt{##1} ~ \noexpand\textbf{[Missing~routing~for~PDF~pos~\int_use:N \l_cn_pdf_index_int]}
+              \noexpand\\ \hspace{1em} \textbullet ~ \texttt{##1} ~ \noexpand\textbf{[Missing~routing~for~PDF~pos~\int_use:N \l_cn_pdf_index_int]}
             }
           }
         } {
@@ -642,22 +876,38 @@
           [CRITICAL~ENGINEERING~GUARD~TRIGGERED]\\ \vspace{0.8em}
           \normalfont\small\color{black}\flushleft
           The~compilation~was~forcefully~halted~due~to~the~following~rule~violations:\vspace{0.5em}
-          
-          % BUGFIX (Claude): this branch (the hard-halt/error figure) and the
+          %
+          % BUGFIX (Claude): blank lines here (and again just below, before
+          % \g_cn_diagnostic_manifest_tl) each get tokenized, at file-read
+          % time, into a stray \par -- LaTeX inserts \par for any blank
+          % (whitespace-only) line, regardless of \ExplSyntaxOn. Since real
+          % paragraph text ("The compilation was...") had already started
+          % above, that \par ended the paragraph mid-box, forcing \\ below
+          % to restart a brand new one (paragraph-start machinery firing)
+          % right before a lone \bullet -- a MATH-ONLY symbol, which
+          % reliably throws "Missing $ inserted." in text mode
+          % (recoverably the first time, but corrupting enough math-mode
+          % state that it cascades into a hard failure on later
+          % \insertimages calls -- confirmed reproducible either way).
+          % Fixed on both counts: \bullet -> \textbullet above (the real
+          % text-mode bullet glyph, needs no math mode at all), and both
+          % blank lines replaced with comment-only lines (%) so no stray
+          % \par is ever generated here.
+          % this branch (the hard-halt/error figure) and the
           % normal-layout figure below are mutually exclusive halves of the
           % same \bool_if:nTF -- \l_tmpa_int is only ever assigned in the
           % OTHER (layout) branch, so on THIS branch it still held whatever
           % \l_tmpa_int happened to contain from some unrelated earlier use
           % (a stale/garbage number). The actual image count is available
           % directly from \g_cn_images_seq regardless of which branch runs.
-          \bool_if:NT \g_cn_column_math_bool { \\ \hspace{1em} \bullet ~ \textbf{[MATH~ERROR]}~Requested~\int_use:N \l_cn_cols_int~columns,~but~only~provided~\seq_count:N \g_cn_images_seq~images. }
-          \bool_if:NT \g_cn_excess_captions_bool { \\ \hspace{1em} \bullet ~ \textbf{[CAPTION~MISMATCH]}~More~captions~provided~than~images. }
-          \bool_if:NT \g_cn_pdf_excess_blocks_bool { \\ \hspace{1em} \bullet ~ \textbf{[EXCESS~PDF~ROUTING]}~Provided~more~semicolon~sets~in~pdfpages~than~total~PDFs~detected. }
+          \bool_if:NT \g_cn_column_math_bool { \\ \hspace{1em} \textbullet ~ \textbf{[MATH~ERROR]}~Requested~\int_use:N \l_cn_cols_int~columns,~but~only~provided~\seq_count:N \g_cn_images_seq~images. }
+          \bool_if:NT \g_cn_excess_captions_bool { \\ \hspace{1em} \textbullet ~ \textbf{[CAPTION~MISMATCH]}~More~captions~provided~than~images. }
+          \bool_if:NT \g_cn_pdf_excess_blocks_bool { \\ \hspace{1em} \textbullet ~ \textbf{[EXCESS~PDF~ROUTING]}~Provided~more~semicolon~sets~in~pdfpages~than~total~PDFs~detected. }
           % NOTE (Claude): deliberately no bullet added here for
           % \g_cn_invalid_columns_bool -- see \msg_error:nnx above instead
           % (console/log), and the comment on that guard's declaration
           % near the top of this file for why.
-
+          %
           \g_cn_diagnostic_manifest_tl
           \vspace{1em}
         \end{minipage}
@@ -714,10 +964,10 @@
             \begin{minipage}{0.95\linewidth}
               \vspace{1em}\centering\color{red!50!black}\bfseries\sffamily
               [ILLEGAL~CHARACTER~IN~FILENAME]\\ \vspace{0.8em}
-              \normalfont\small\color{black} Unsafe~string:~~\texttt{\l_tmpa_tl} \vspace{1em}
+              \normalfont\small\color{black} See~the~console/log~for~the~exact~file~name. \vspace{1em}
             \end{minipage}
           }
-          \msg_error:nn { circuitnacho } { hard-halt-error }
+          \msg_error:nnx { circuitnacho } { illegal-filename } { \l_tmpa_tl }
           % BUGFIX (Claude): \xspace \use_none:nnnnnnnnn removed here too --
           % same problem as the outer guard, but worse in a loop: it doesn't
           % just eat the rest of the document, it eats the rest of THIS
@@ -744,7 +994,8 @@
             \setlength{\fboxrule}{1.5pt}
             \fcolorbox{red}{white}{
               \begin{minipage}[c][3cm][c]{ \l_cn_parsed_width_tl }
-                \centering \color{red}\bfseries [Missing~Image:\ \texttt{\l_tmpa_tl}]
+                \exp_args:No \__cn_safe_display:n \l_tmpa_tl
+                \centering \color{red}\bfseries [Missing~Image:\space \texttt{\l_cn_safe_display_tl}]
               \end{minipage}
             }
           }
@@ -782,11 +1033,11 @@
           \IfBooleanTF{#1}
             {
               \int_compare:nTF { \int_mod:nn { ##1 } { \l_cn_cols_int } == 0 }
-                { \ \nopagebreak \vspace{1.5em} }
+                { \space \nopagebreak \vspace{1.5em} }
                 { \hfill }
             }
             {
-              \ \nopagebreak \vspace{2.0em}
+              \space \nopagebreak \vspace{2.0em}
             }
         }
         } % end \bool_if:NF \l_tmpb_bool -- closes the "skip this image if its filename was illegal" guard
