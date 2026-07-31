@@ -1,14 +1,12 @@
 -- [Matrix]
--- Construction, display, and arithmetic for 2-D matrices. Self-contained
--- by design: none of these functions call Is_complex/cabs/etc. directly --
--- Complex-entry support flows through automatically via the +/-/* operator
--- overloads defined in Complex (see that module's header comment), so this
--- module doesn't need to require Complex at all.
+-- Construction, display, and arithmetic for 2-D matrices.
+-- Codex: Core supplies the shared public-input validation policy; complex
+-- arithmetic still flows through the operators defined by Complex.
+local Core = require("GABAS-LINAL.modules.core")
+local Complex = require("GABAS-LINAL.modules.complex")
 
 local function Show_matrix(matriz)
-    assert(type(matriz) == "table" and #matriz > 0 and type(matriz[1]) == "table" and #matriz[1] > 0,
-        "Show_matrix: matriz must be a non-empty matrix (a table of non-empty row-tables).")
-    local m, n = #matriz, #matriz[1]
+    local m, n = Core.assert_matrix(matriz, "Show_matrix: matriz")
     for i = 1, m do
         local row = matriz[i]
         for j = 1, n do
@@ -23,8 +21,7 @@ end
 
 local function Matrix(data, num_filas)
     assert(type(data) == "table" and #data > 0, "Matrix: data must be a non-empty table.")
-    assert(type(num_filas) == "number" and num_filas >= 1 and num_filas == math.floor(num_filas),
-        "Matrix: num_filas must be a positive integer.")
+    Core.assert_positive_integer(num_filas, "Matrix: num_filas")
     local limite = #data
     assert((limite % num_filas) == 0, "Matrix: mismatch between number of elements and number of rows.")
     local m = {}
@@ -41,7 +38,8 @@ local function Matrix(data, num_filas)
 end
 
 local function Sequence(aleph, tat)
-    assert(type(aleph) == "number" and type(tat) == "number", "Sequence: aleph and tat must be numbers.")
+    Core.assert_finite_number(aleph, "Sequence: aleph")
+    Core.assert_finite_number(tat, "Sequence: tat")
     local m = {}
     local k = 1
     for j = aleph, tat do
@@ -60,9 +58,9 @@ local function Show_table(tabla)
 end
 
 local function Mat_mul(M1, M2)
-    local m, p = #M1, #M1[1]
-    local n = #M2[1]
-    assert(#M2 == p, "Mat_mul: number of columns in M1 must match number of rows in M2.")
+    local m, p = Core.assert_matrix(M1, "Mat_mul: M1")
+    local m2, n = Core.assert_matrix(M2, "Mat_mul: M2")
+    assert(m2 == p, "Mat_mul: number of columns in M1 must match number of rows in M2.")
     local C = {}
     for i = 1, m do
         local row1 = M1[i]
@@ -80,8 +78,9 @@ local function Mat_mul(M1, M2)
 end
 
 local function Mat_sum(M1, M2)
-    local m, n = #M1, #M1[1]
-    assert(#M2 == m and #M2[1] == n, "Mat_sum: matrices must have matching dimensions.")
+    local m, n = Core.assert_matrix(M1, "Mat_sum: M1")
+    local m2, n2 = Core.assert_matrix(M2, "Mat_sum: M2")
+    assert(m2 == m and n2 == n, "Mat_sum: matrices must have matching dimensions.")
     local C = {}
     for i = 1, m do
         local row1, row2 = M1[i], M2[i]
@@ -95,8 +94,9 @@ local function Mat_sum(M1, M2)
 end
 
 local function Mat_sub(M1, M2)
-    local m, n = #M1, #M1[1]
-    assert(#M2 == m and #M2[1] == n, "Mat_sub: matrices must have matching dimensions.")
+    local m, n = Core.assert_matrix(M1, "Mat_sub: M1")
+    local m2, n2 = Core.assert_matrix(M2, "Mat_sub: M2")
+    assert(m2 == m and n2 == n, "Mat_sub: matrices must have matching dimensions.")
     local C = {}
     for i = 1, m do
         local row1, row2 = M1[i], M2[i]
@@ -110,7 +110,8 @@ local function Mat_sub(M1, M2)
 end
 
 local function Scalar_mul(matriz, escalar)
-    local m, n = #matriz, #matriz[1]
+    local m, n = Core.assert_matrix(matriz, "Scalar_mul: matriz")
+    Core.assert_finite_scalar(escalar, "Scalar_mul: escalar")
     local C = {}
     for i = 1, m do
         local row = matriz[i]
@@ -124,7 +125,7 @@ local function Scalar_mul(matriz, escalar)
 end
 
 local function Eye(dim)
-    assert(type(dim) == "number" and dim >= 1 and dim == math.floor(dim), "Eye: dim must be a positive integer.")
+    Core.assert_positive_integer(dim, "Eye: dim")
     local C = {}
     for i = 1, dim do
         C[i] = {}
@@ -140,10 +141,8 @@ local function Eye(dim)
 end
 
 local function Zeroes(n_rows, n_cols)
-    assert(type(n_rows) == "number" and n_rows >= 1 and n_rows == math.floor(n_rows),
-        "Zeroes: n_rows must be a positive integer.")
-    assert(type(n_cols) == "number" and n_cols >= 1 and n_cols == math.floor(n_cols),
-        "Zeroes: n_cols must be a positive integer.")
+    Core.assert_positive_integer(n_rows, "Zeroes: n_rows")
+    Core.assert_positive_integer(n_cols, "Zeroes: n_cols")
     local C = {}
     for i = 1, n_rows do
         C[i] = {}
@@ -168,11 +167,11 @@ end
 -- from time()) could otherwise reset to the same state and produce
 -- identical "random" matrices.
 local function Random_mat(m, n, valor, seed)
-    assert(type(m) == "number" and m >= 1 and m == math.floor(m), "Random_mat: m must be a positive integer.")
-    assert(type(n) == "number" and n >= 1 and n == math.floor(n), "Random_mat: n must be a positive integer.")
-    assert(type(valor) == "number" and valor >= 1, "Random_mat: valor must be >= 1.")
+    Core.assert_positive_integer(m, "Random_mat: m")
+    Core.assert_positive_integer(n, "Random_mat: n")
+    Core.assert_positive_integer(valor, "Random_mat: valor")
     if seed ~= nil then
-        assert(type(seed) == "number", "Random_mat: seed must be a number.")
+        Core.assert_integer(seed, "Random_mat: seed")
         math.randomseed(seed)
     end
     local C = {}
@@ -186,9 +185,7 @@ local function Random_mat(m, n, valor, seed)
 end
 
 local function T(matriz)
-    assert(type(matriz) == "table" and #matriz > 0 and type(matriz[1]) == "table" and #matriz[1] > 0,
-        "T: matriz must be a non-empty matrix.")
-    local m, n = #matriz, #matriz[1]
+    local m, n = Core.assert_matrix(matriz, "T: matriz")
     local C = {}
     for i = 1, n do
         local row_c = {}
@@ -200,17 +197,44 @@ local function T(matriz)
     return C
 end
 
+local function Matrix_Vector_Mul(matriz, vector)
+    local rows, cols = Core.assert_matrix(matriz, "Matrix_Vector_Mul: matriz")
+    Core.assert_vector(vector, "Matrix_Vector_Mul: vector", {length = cols})
+    local result = {}
+    for i = 1, rows do
+        local sum = 0
+        for j = 1, cols do sum = sum + matriz[i][j] * vector[j] end
+        result[i] = sum
+    end
+    return result
+end
+
+local function Conjugate_Transpose(matriz)
+    Core.assert_matrix(matriz, "Conjugate_Transpose: matriz")
+    return Complex.Conjugate(T(matriz))
+end
+
 return {
     Show_matrix = Show_matrix,
+    Show_Matrix = Show_matrix,
     Matrix = Matrix,
     Sequence = Sequence,
     Show_table = Show_table,
+    Show_Table = Show_table,
     Mat_mul = Mat_mul,
+    Mat_Mul = Mat_mul,
     Mat_sum = Mat_sum,
+    Mat_Sum = Mat_sum,
     Mat_sub = Mat_sub,
+    Mat_Sub = Mat_sub,
     Scalar_mul = Scalar_mul,
+    Scalar_Mul = Scalar_mul,
     Eye = Eye,
     Zeroes = Zeroes,
     Random_mat = Random_mat,
+    Random_Mat = Random_mat,
     T = T,
+    Matrix_Vector_Mul = Matrix_Vector_Mul,
+    Mat_vec = Matrix_Vector_Mul,
+    Conjugate_Transpose = Conjugate_Transpose,
 }

@@ -4,8 +4,7 @@ local Core = require("GABAS-LINAL.modules.core")
 -- Row-reduces a copy of the matrix (Gaussian elimination with partial
 -- pivoting) and counts the pivots found. Works for non-square matrices too.
 local function Rank(matriz)
-    assert(type(matriz) == "table" and #matriz > 0 and type(matriz[1]) == "table" and #matriz[1] > 0,
-        "Rank: matriz must be a non-empty matrix.")
+    Core.assert_matrix(matriz, "Rank: matriz")
     local mat = Core.copy_matrix(matriz)
     local rows, cols = #mat, #mat[1]
     local rank = 0
@@ -35,17 +34,7 @@ end
 -- Complex's own operator overloads); pivoting uses Core.cabs, which
 -- already handles both real and Complex magnitudes.
 local function Inverse(matriz)
-    assert(type(matriz) == "table" and #matriz > 0 and type(matriz[1]) == "table" and #matriz[1] > 0,
-        "Inverse: matriz must be a non-empty matrix (a table of non-empty row-tables).")
-    local n = #matriz
-    assert(n == #matriz[1], "Inverse: matrix must be square.")
-    for i = 1, n do
-        assert(type(matriz[i]) == "table" and #matriz[i] == n,
-            "Inverse: matriz must be rectangular -- every row must have length " .. n .. ".")
-        for j = 1, n do
-            Core.assert_finite_scalar(matriz[i][j], "Inverse: entry matriz[" .. i .. "][" .. j .. "]")
-        end
-    end
+    local n = Core.assert_matrix(matriz, "Inverse: matriz", {square = true})
 
     local aug = {}
     for i = 1, n do
@@ -76,7 +65,7 @@ local function Inverse(matriz)
             if i ~= k then
                 local row_i = aug[i]
                 local factor = row_i[k]
-                if Core.cabs(factor) > Core.EPSILON then
+                if not Core.is_near_zero(factor, Core.cabs(factor), 0, Core.MACHINE_EPSILON) then
                     for j = k, 2 * n do
                         row_i[j] = row_i[j] - factor * pivot_row_data[j]
                     end
@@ -101,9 +90,8 @@ end
 -- Cramer's rule for anything beyond 2x2/3x3 systems, so that's what's used
 -- here. `b` is a flat vector, not a matrix.
 local function Solve(A, b)
-    local n = #A
-    assert(n == #A[1], "Solve: coefficient matrix A must be square.")
-    assert(#b == n, "Solve: vector b must have the same length as the number of rows in A.")
+    local n = Core.assert_matrix(A, "Solve: coefficient matrix A", {square = true})
+    Core.assert_vector(b, "Solve: vector b", {length = n})
 
     local aug = {}
     for i = 1, n do
@@ -124,7 +112,7 @@ local function Solve(A, b)
 
         for i = k + 1, n do
             local factor = aug[i][k] / aug[k][k]
-            if Core.cabs(factor) > Core.EPSILON then
+            if not Core.is_near_zero(factor, Core.cabs(factor), 0, Core.MACHINE_EPSILON) then
                 for j = k, n + 1 do
                     aug[i][j] = aug[i][j] - factor * aug[k][j]
                 end

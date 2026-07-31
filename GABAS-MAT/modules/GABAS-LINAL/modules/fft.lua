@@ -54,8 +54,7 @@ end
 -- Forward FFT: X_k = sum_n v_n * e^(-i*2*pi*k*n/N). `v` may hold plain
 -- numbers, Complex values, or a mix of both.
 local function FFT(v)
-    assert(type(v) == "table" and #v > 0, "FFT: v must be a non-empty vector.")
-    local n = #v
+    local n = Core.assert_vector(v, "FFT: v")
     assert(Core.next_pow2(n) == n,
         "FFT: v's length (" .. n .. ") must be a power of 2 -- the radix-2 Cooley-Tukey " ..
         "algorithm this implements only ever splits its input exactly in half; zero-pad v up " ..
@@ -67,8 +66,7 @@ end
 -- original (generally Complex-valued) sequence a forward FFT(v) produced.
 -- Same power-of-2 length restriction as FFT, for the same reason.
 local function IFFT(V)
-    assert(type(V) == "table" and #V > 0, "IFFT: V must be a non-empty vector.")
-    local n = #V
+    local n = Core.assert_vector(V, "IFFT: V")
     assert(Core.next_pow2(n) == n,
         "IFFT: V's length (" .. n .. ") must be a power of 2, for the same reason as FFT.")
     local result = fft_recursive(V, 1)
@@ -81,4 +79,5 @@ end
 return {
     FFT = FFT,
     IFFT = IFFT,
+    I_FFT = IFFT,
 }

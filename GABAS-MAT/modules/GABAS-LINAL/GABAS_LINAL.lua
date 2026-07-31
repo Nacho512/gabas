@@ -90,6 +90,7 @@ local submodules = {
 for _, name in ipairs(submodules) do
     local mod = require("GABAS-LINAL.modules." .. name)
     for key, value in pairs(mod) do
+        assert(LA[key] == nil, "GABAS_LINAL: duplicate public export '" .. key .. "' from module " .. name .. ".")
         LA[key] = value
     end
 end

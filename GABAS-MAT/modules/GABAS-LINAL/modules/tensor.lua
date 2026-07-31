@@ -3,6 +3,7 @@
 -- for Is_complex, used by tensor_depth to detect where a tensor's nesting
 -- bottoms out at a leaf value.
 local Complex = require("GABAS-LINAL.modules.complex")
+local Core = require("GABAS-LINAL.modules.core")
 
 -- NOTE (Nacho): FFT will likely become indispensable here once tensor-domain
 -- operations are added, but nothing in this file needs it yet -- not
@@ -21,8 +22,7 @@ local function validate_tensor_dims(dims, fn_name, counterpart_name)
         "(use " .. counterpart_name .. " for 2 dimensions, or a plain flat table for 1).")
     for i = 1, #dims do
         local extent = dims[i]
-        assert(type(extent) == "number" and extent >= 1 and extent == math.floor(extent),
-            fn_name .. ": dims[" .. i .. "] must be a positive integer.")
+        Core.assert_positive_integer(extent, fn_name .. ": dims[" .. i .. "]")
     end
 end
 
@@ -124,7 +124,7 @@ end
 -- every dimension size must be given up front. The result is nested tables
 -- #dims levels deep: a 3-D tensor T is indexed T[i][j][k].
 local function Tensor(data, dims)
-    assert(type(data) == "table" and #data > 0, "Tensor: data must be a non-empty table.")
+    Core.assert_vector(data, "Tensor: data")
     validate_tensor_dims(dims, "Tensor", "Matrix")
     local total = 1
     for i = 1, #dims do
@@ -217,9 +217,9 @@ end
 -- reproducibility, generalized to any shape with 3+ dimensions.
 local function Random_tensor(dims, valor, seed)
     validate_tensor_dims(dims, "Random_tensor", "Random_mat")
-    assert(type(valor) == "number" and valor >= 1, "Random_tensor: valor must be >= 1.")
+    Core.assert_positive_integer(valor, "Random_tensor: valor")
     if seed ~= nil then
-        assert(type(seed) == "number", "Random_tensor: seed must be a number.")
+        Core.assert_integer(seed, "Random_tensor: seed")
         math.randomseed(seed)
     end
     return build_random_tensor(dims, 1, valor)
@@ -228,7 +228,11 @@ end
 return {
     Tensor = Tensor,
     Zeroes_tensor = Zeroes_tensor,
+    Zeroes_Tensor = Zeroes_tensor,
     Eye_tensor = Eye_tensor,
+    Eye_Tensor = Eye_tensor,
     Random_tensor = Random_tensor,
+    Random_Tensor = Random_tensor,
     Show_tensor = Show_tensor,
+    Show_Tensor = Show_tensor,
 }

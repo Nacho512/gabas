@@ -7,7 +7,12 @@
 -- list of submodules it flattens into the public table.
 local Complex = require("GABAS-LINAL.modules.complex")
 
-local EPSILON = 1e-9
+local MACHINE_EPSILON = 2.2204460492503131e-16
+local DEFAULT_ABS_TOL = 1e-9
+local DEFAULT_REL_TOL = 1e-9
+-- Codex: backward-compatible internal name. New code should use the explicit
+-- tolerance names or is_near_zero instead.
+local EPSILON = DEFAULT_ABS_TOL
 
 -- Magnitude that works on both plain numbers and Complex values -- used
 -- everywhere a pivoting/convergence/near-zero check needs "how big is
@@ -38,9 +43,10 @@ end
 -- largest magnitude (classic partial pivoting: picking the largest
 -- magnitude, not just the first non-zero one, keeps the elimination
 -- numerically stable). Returns the row index, or nil if every candidate is
--- ~0 (singular column). Shared by Determinant and Systems.
+-- Codex: exact zero is singular here; scale-aware near-zero policy belongs
+-- to the calling algorithm rather than an absolute pivot cutoff.
 local function find_pivot_row(mat, k, last_row, col)
-    local best_row, best_val = nil, EPSILON
+    local best_row, best_val = nil, 0
     for i = k, last_row do
         local v = cabs(mat[i][col])
         if v > best_val then
@@ -92,10 +98,21 @@ local function is_positive_integer(x) return is_integer(x) and x >= 1 end
 local function is_nonneg_integer(x) return is_integer(x) and x >= 0 end
 
 -- True iff x is "numerically zero", real or complex, within `tol`
--- (defaulting to this module's general EPSILON) -- the boolean form of
+-- (defaulting to this module's general absolute tolerance) -- the boolean form of
 -- the near-zero check find_pivot_row already does inline for pivoting.
 local function is_zero(x, tol)
-    return cabs(x) <= (tol or EPSILON)
+    return cabs(x) <= (tol or DEFAULT_ABS_TOL)
+end
+
+local function is_near_zero(x, scale, atol, rtol)
+    scale = scale or 1
+    atol = atol or DEFAULT_ABS_TOL
+    rtol = rtol or DEFAULT_REL_TOL
+    assert(is_finite_scalar(x), "Core.is_near_zero: x must be a finite scalar.")
+    assert(is_nonneg_number(scale), "Core.is_near_zero: scale must be a finite nonnegative number.")
+    assert(is_nonneg_number(atol), "Core.is_near_zero: atol must be a finite nonnegative number.")
+    assert(is_nonneg_number(rtol), "Core.is_near_zero: rtol must be a finite nonnegative number.")
+    return cabs(x) <= atol + rtol * scale
 end
 
 -- True iff x is a string with at least one non-whitespace character --
@@ -187,7 +204,52 @@ local function validate(x, kind, label, extra)
     fn(x, label)
 end
 
+local function assert_vector(v, label, opts)
+    opts = opts or {}
+    assert(type(opts) == "table", "Core.assert_vector: opts must be a table.")
+    label = label or "vector"
+    assert(type(v) == "table" and (opts.allow_empty or #v > 0),
+        label .. " must be " .. (opts.allow_empty and "a vector." or "a non-empty vector."))
+    if opts.length ~= nil then
+        assert(#v == opts.length, label .. " must have length " .. opts.length .. ".")
+    end
+    for i = 1, #v do
+        assert_finite_scalar(v[i], label .. "[" .. i .. "]")
+        if opts.real then
+            assert(not Complex.Is_complex(v[i]), label .. "[" .. i .. "] must be a finite real number.")
+        end
+    end
+    return #v
+end
+
+local function assert_matrix(matrix, label, opts)
+    opts = opts or {}
+    assert(type(opts) == "table", "Core.assert_matrix: opts must be a table.")
+    label = label or "matrix"
+    assert(type(matrix) == "table" and #matrix > 0 and type(matrix[1]) == "table" and #matrix[1] > 0,
+        label .. " must be a non-empty matrix (a table of non-empty row-tables).")
+    local rows, cols = #matrix, #matrix[1]
+    for i = 1, rows do
+        assert(type(matrix[i]) == "table" and #matrix[i] == cols,
+            label .. " must be rectangular -- every row must have length " .. cols .. ".")
+        for j = 1, cols do
+            assert_finite_scalar(matrix[i][j], label .. "[" .. i .. "][" .. j .. "]")
+            if opts.real then
+                assert(not Complex.Is_complex(matrix[i][j]),
+                    label .. "[" .. i .. "][" .. j .. "] must be a finite real number.")
+            end
+        end
+    end
+    if opts.square then
+        assert(rows == cols, label .. " must be square.")
+    end
+    return rows, cols
+end
+
 return {
+    MACHINE_EPSILON = MACHINE_EPSILON,
+    DEFAULT_ABS_TOL = DEFAULT_ABS_TOL,
+    DEFAULT_REL_TOL = DEFAULT_REL_TOL,
     EPSILON = EPSILON,
     cabs = cabs,
     copy_matrix = copy_matrix,
@@ -201,6 +263,7 @@ return {
     is_positive_integer = is_positive_integer,
     is_nonneg_integer = is_nonneg_integer,
     is_zero = is_zero,
+    is_near_zero = is_near_zero,
     is_nonblank_string = is_nonblank_string,
     assert_finite_number = assert_finite_number,
     assert_finite_scalar = assert_finite_scalar,
@@ -212,4 +275,6 @@ return {
     assert_nonblank_string = assert_nonblank_string,
     assert_one_of = assert_one_of,
     validate = validate,
+    assert_vector = assert_vector,
+    assert_matrix = assert_matrix,
 }

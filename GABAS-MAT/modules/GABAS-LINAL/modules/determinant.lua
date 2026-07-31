@@ -3,8 +3,7 @@ local Core = require("GABAS-LINAL.modules.core")
 local Matrix = require("GABAS-LINAL.modules.matrix")
 
 local function MDet(matrix)
-    local rows, cols = #matrix, #matrix[1]
-    assert(rows == cols, "MDet: matrix must be square.")
+    local rows = Core.assert_matrix(matrix, "MDet: matrix", {square = true})
 
     -- LU decomposition (Gaussian elimination) with partial pivoting.
     local lu = Core.copy_matrix(matrix)
@@ -30,7 +29,7 @@ local function MDet(matrix)
         end
     end
 
-    if Core.cabs(lu[rows][rows]) <= Core.EPSILON then
+    if Core.cabs(lu[rows][rows]) == 0 then
         return 0
     end
 
@@ -148,13 +147,11 @@ local function strassen_mul_rect(A, m, k, B, k2, n, threshold)
 end
 
 local function Big_MDet(matrix, block_size)
-    local n = #matrix
-    assert(n == #matrix[1], "Big_MDet: matrix must be square.")
+    local n = Core.assert_matrix(matrix, "Big_MDet: matrix", {square = true})
     block_size = block_size or 64
     -- A block_size <= 0 would make panel_end < col every iteration, so `col`
     -- never advances -- an infinite loop, not just a bad result.
-    assert(type(block_size) == "number" and block_size >= 1 and block_size == math.floor(block_size),
-        "Big_MDet: block_size must be a positive integer.")
+    Core.assert_positive_integer(block_size, "Big_MDet: block_size")
 
     if n <= block_size then
         return MDet(matrix)
@@ -247,7 +244,7 @@ local function Big_MDet(matrix, block_size)
         col = panel_end + 1
     end
 
-    if Core.cabs(lu[n][n]) <= Core.EPSILON then
+    if Core.cabs(lu[n][n]) == 0 then
         return 0
     end
 
@@ -261,5 +258,7 @@ end
 
 return {
     MDet = MDet,
+    M_Det = MDet,
     Big_MDet = Big_MDet,
+    Big_M_Det = Big_MDet,
 }
