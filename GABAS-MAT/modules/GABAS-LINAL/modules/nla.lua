@@ -360,7 +360,18 @@ end
 -- Sigma[i][i] values, handed back the way Eigenvalues() hands back
 -- eigenvalues, so comparing/thresholding them doesn't require digging
 -- them out of Sigma's diagonal yourself).
-local function SVD(A, opts)
+--
+-- This is the shared engine behind SVD, SVD_economy, SVD_reduced, and
+-- SVD_truncated below: all four output *forms* (full/economy/reduced/
+-- truncated) are just different amounts of this same, already-computed
+-- result kept -- never a different computation. Economy/Reduced/Truncated
+-- need every exact singular value anyway (to know which ones are padding
+-- vs. genuinely zero vs. below the k they asked for), so there's nothing
+-- to save by recomputing a "smaller" decomposition from scratch; the only
+-- real algorithmic shortcut for truncated SVD (Lanczos/randomized methods
+-- that never form the full decomposition at all) is a different, much
+-- larger undertaking, out of scope here -- see SVD_truncated's own comment.
+local function svd_core(A, opts)
     assert(type(A) == "table" and #A > 0 and type(A[1]) == "table" and #A[1] > 0,
         "SVD: A must be a non-empty matrix (a table of non-empty row-tables).")
     local m, n = #A, #A[1]
@@ -398,18 +409,26 @@ local function SVD(A, opts)
         end
     end
     if alpha == 0 then
-        return Matrix.Eye(m), Matrix.Zeroes(m, n), Matrix.Eye(n)
+        local sv_zero = {}
+        for i = 1, math.min(m, n) do sv_zero[i] = 0 end
+        return Matrix.Eye(m), Matrix.Zeroes(m, n), Matrix.Eye(n), sv_zero
     end
 
-    -- Safe scaling: brings the largest-magnitude entry to 1 before doing
-    -- any arithmetic, so Householder norms/rotations stay well away from
-    -- overflow/underflow regardless of A's own scale; unscaled at the end.
-    local SAFE_MIN, SAFE_MAX = 1e-100, 1e100
-    local scale = 1
-    if alpha < SAFE_MIN or alpha > SAFE_MAX then
-        scale = 1 / alpha
-    end
-    local Ascaled = (scale == 1) and A or Matrix.Scalar_mul(A, scale)
+    -- Safe scaling: brings the largest-magnitude entry to exactly 1 before
+    -- doing any arithmetic, so Householder norms/rotations stay well away
+    -- from overflow/underflow regardless of A's own scale; unscaled at the
+    -- end (Sigma and sv are both divided back by `scale`). This has to be
+    -- unconditional, not just for extreme alpha (say, outside 1e-100 .. 1e100)
+    -- -- householder()'s own zero-vector guard (`r < Core.EPSILON`, with
+    -- Core.EPSILON = 1e-9, this module's general "close enough to zero"
+    -- constant, not machine epsilon) is an ABSOLUTE threshold, so any A left
+    -- unscaled with entries already below ~1e-9 -- nothing exotic, just a
+    -- matrix of small numbers -- would silently misfire that guard and
+    -- corrupt the whole bidiagonalization. Found via SVD_truncated's own
+    -- scaling test (sv(cA) should equal |c|*sv(A) for any c, including
+    -- c=1e-10): singular values came back up to 45% off before this fix.
+    local scale = 1 / alpha
+    local Ascaled = Matrix.Scalar_mul(A, scale)
 
     -- Core algorithm assumes "tall" (rows >= cols); for a wide A, solve
     -- for A^H instead (now tall) and un-transpose the result: if
@@ -532,9 +551,183 @@ local function SVD(A, opts)
     return U, Sigma, V, sv
 end
 
+-- Full SVD: A = U*Sigma*V^H, U (m x m), Sigma (m x n), V (n x n) -- see
+-- svd_core above for the full parameter/return documentation (opts,
+-- verify, etc.) and the algorithm notes.
+local function SVD(A, opts)
+    return svd_core(A, opts)
+end
+
+-- Returns the first `k` columns of M (any shape) -- used to cut U/V down
+-- from their full m x m / n x n size to just the columns a given output
+-- form actually keeps.
+local function first_cols(M, k)
+    local rows = #M
+    local C = {}
+    for i = 1, rows do
+        local row = {}
+        for j = 1, k do row[j] = M[i][j] end
+        C[i] = row
+    end
+    return C
+end
+
+-- Returns the k x k top-left block of a square-ish Sigma -- its only
+-- nonzero entries live there anyway (rows/cols beyond k are all zero,
+-- since sv is already sorted descending), so this is exact, not a lossy
+-- approximation of a block that still had nonzero entries outside it.
+local function top_left_block(M, k)
+    local C = {}
+    for i = 1, k do
+        local row = {}
+        for j = 1, k do row[j] = M[i][j] end
+        C[i] = row
+    end
+    return C
+end
+
+local function first_n(v, n)
+    local r = {}
+    for i = 1, n do r[i] = v[i] end
+    return r
+end
+
+-- Economy SVD: A = U_p*Sigma_p*V_p^H, U_p (m x p), Sigma_p (p x p),
+-- V_p (n x p), p = min(m,n). Still an EXACT decomposition of A -- the
+-- columns/rows dropped relative to Full SVD are only the ones that
+-- pair with Sigma's all-zero padding (present whenever m ~= n), never
+-- with an actual singular value. See svd_core for opts.
+local function SVD_economy(A, opts)
+    local U, Sigma, V, sv = svd_core(A, opts)
+    local p = #sv
+    return first_cols(U, p), top_left_block(Sigma, p), first_cols(V, p), sv
+end
+
+-- Numerical rank from an already-sorted-descending sv: how many clear a
+-- tolerance scaled to the matrix's own size and largest singular value
+-- (max(m,n) * machine epsilon * sv[1] -- the same convention Rank()/MDet()
+-- use elsewhere in this module, and, reassuringly, exactly the formula in
+-- the reference material this was built from: "tolerance = MAXIMUM(m,n) x
+-- largest_value x machine_epsilon"). sv sorted descending means the
+-- singular values clearing tol are always a leading run, so the first one
+-- that doesn't clear it ends the count. Shared by SVD_reduced and
+-- SVD_truncated below.
+local function numerical_rank(sv, m, n, tol)
+    if tol == nil then
+        tol = math.max(m, n) * Core.EPSILON * (sv[1] or 0)
+    end
+    local r = 0
+    for i = 1, #sv do
+        if sv[i] > tol then
+            r = i
+        else
+            break
+        end
+    end
+    return r
+end
+
+-- Reduced SVD: A = U_r*Sigma_r*V_r^H, U_r (m x r), Sigma_r (r x r),
+-- V_r (n x r), r = rank(A) (numerically: how many of the p = min(m,n)
+-- singular values clear opts.tol, sv sorted descending so they're always
+-- a leading run). Still exact -- unlike Truncated below, r isn't a choice,
+-- it's a property of A itself, discovered from its own singular values.
+local function SVD_reduced(A, opts)
+    opts = opts or {}
+    local U, Sigma, V, sv = svd_core(A, opts)
+    local r = numerical_rank(sv, #U, #V, opts.tol)
+    assert(r >= 1,
+        "SVD_reduced: A is numerically the zero matrix (rank 0) -- a reduced " ..
+        "SVD would have 0 columns, which this module's matrix representation " ..
+        "can't hold; use SVD_economy if you need a shape-only (not " ..
+        "rank-revealing) reduction.")
+    return first_cols(U, r), top_left_block(Sigma, r), first_cols(V, r), first_n(sv, r)
+end
+
+-- Truncated SVD: A_k = U_k*Sigma_k*V_k^H, the best rank-k approximation of
+-- A (Eckart-Young), U_k (m x k), Sigma_k (k x k), V_k (n x k). NOT exact
+-- by design -- A_k only equals A when k >= rank(A). `k` is a REQUIRED
+-- choice you make (how much compression/approximation you want), unlike
+-- Reduced's r, which is a property of A discovered from its own singular
+-- values -- that's the actual difference between these two forms, not
+-- just "how many columns."
+--
+-- Simplest-practical algorithm, deliberately: compute the (economy) SVD
+-- and keep the first k components -- the same "reuse the shared engine,
+-- slice the result" approach as Economy/Reduced above, and, for what it's
+-- worth, the same algorithm named as the practical baseline in the
+-- reference material this was built from. A genuinely faster truncated-
+-- only algorithm (Lanczos bidiagonalization, randomized projection --
+-- methods that find the top k singular triplets WITHOUT ever forming the
+-- full decomposition) would matter for large sparse A with k << min(m,n),
+-- but is a materially different, larger undertaking -- out of scope here,
+-- the same kind of scope decision as SVD's own QR-vs-divide-and-conquer
+-- one above.
+--
+-- k > min(m,n) is a hard error (there's no k-th component to keep at all).
+-- k > rank(A) is deliberately NOT an error, only a warning -- the
+-- computation is still perfectly well-defined (Sigma_k just ends up with
+-- some numerically-zero entries on it), it just means the result won't
+-- truly have rank k; the caller may not even care (e.g. deliberately
+-- asking for more components than a possibly-uncertain rank estimate).
+--
+-- Returns U_k, Sigma_k, V_k, sv_k, and A_k = U_k*Sigma_k*V_k^H (the actual
+-- rank-k approximation, not just its factors) -- the caller can measure
+-- how good an approximation it is themselves (e.g. VNorm on the flattened
+-- residual A-A_k) without this function guessing what tolerance would be
+-- "too large" on their behalf; a large residual isn't a bug here, it may
+-- just mean k was chosen too small for what the caller actually needed.
+local function SVD_truncated(A, k, opts)
+    opts = opts or {}
+    local U, Sigma, V, sv = svd_core(A, opts)
+    local p = #sv
+    assert(type(k) == "number" and k == math.floor(k) and k >= 1 and k <= p,
+        "SVD_truncated: k must be an integer with 1 <= k <= min(m,n) (= " .. p .. ").")
+
+    local r = numerical_rank(sv, #U, #V, opts.tol)
+
+    -- Advisory, not correctness: k==p or k==r are both perfectly valid calls
+    -- (the assembly below still runs and still returns a correct A_k), but
+    -- either one means a different function in this same family already
+    -- does the same job without making the caller supply k by hand --
+    -- worth flagging *before* the work happens, not just after something
+    -- goes wrong. elseif means at most one advisory fires (k==p implies the
+    -- SVD_economy suggestion is the more direct fit even when it also
+    -- happens to equal r).
+    if k == p then
+        io.stderr:write(
+            "SVD_truncated: k equals min(m,n), so no components are actually " ..
+            "being discarded -- SVD_economy(A) returns the same result " ..
+            "without having to pass k at all; consider that instead.\n")
+    elseif k == r then
+        io.stderr:write(string.format(
+            "SVD_truncated: k=%d equals A's numerically-estimated rank; " ..
+            "SVD_reduced(A) finds that same r on its own, instead of you " ..
+            "having to know or guess it in advance; consider that instead " ..
+            "unless you specifically want a fixed k regardless of A's rank.\n", k))
+    end
+
+    if k > r then
+        io.stderr:write(string.format(
+            "SVD_truncated: k=%d exceeds A's numerically-estimated rank (r=%d); " ..
+            "some retained singular values are ~0, so the result won't truly " ..
+            "have rank k.\n", k, r))
+    end
+
+    local Uk = first_cols(U, k)
+    local Sigmak = top_left_block(Sigma, k)
+    local Vk = first_cols(V, k)
+    local svk = first_n(sv, k)
+    local Ak = Matrix.Mat_mul(Matrix.Mat_mul(Uk, Sigmak), conj_transpose(Vk))
+    return Uk, Sigmak, Vk, svk, Ak
+end
+
 return {
     Rayleigh = Rayleigh,
     SVD = SVD,
+    SVD_economy = SVD_economy,
+    SVD_reduced = SVD_reduced,
+    SVD_truncated = SVD_truncated,
 }
 
 -- B"H.
