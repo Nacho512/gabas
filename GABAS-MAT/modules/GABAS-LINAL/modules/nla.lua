@@ -820,12 +820,183 @@ local function SVD_truncated(A, k, opts)
     return Uk, Sigmak, Vk, svk, Ak
 end
 
+local function frob_norm(M)
+    local s = 0
+    for i = 1, #M do
+        local row = M[i]
+        for j = 1, #row do
+            s = s + Core.cabs(row[j]) ^ 2
+        end
+    end
+    return math.sqrt(s)
+end
+
+-- Scales column j of M by factors[j], for j = 1..#factors -- used to apply
+-- a diagonal scaling without ever allocating the diagonal matrix itself
+-- (see Pinv below).
+local function scale_cols(M, factors)
+    local rows, cols = #M, #factors
+    local C = {}
+    for i = 1, rows do
+        local row, src = {}, M[i]
+        for j = 1, cols do row[j] = src[j] * factors[j] end
+        C[i] = row
+    end
+    return C
+end
+
+-- Moore-Penrose pseudoinverse: A+ = V_r*diag(1/s_r)*U_r^H, built from an
+-- economy-sized SVD -- same "reuse the shared engine" pattern as
+-- SVD_economy/SVD_reduced/SVD_truncated above, not a separate computation.
+-- The diagonal scaling is applied by scaling V_r's columns directly
+-- (scale_cols) rather than by constructing and multiplying by an r x r
+-- diagonal matrix, per the reference material's own recommendation: it
+-- avoids the extra allocation, makes each reciprocal's overflow guard
+-- explicit per-component, and still ends in a single dense matrix product.
+--
+-- Deliberately does NOT reuse SVD_reduced for the r>0 slicing, for two
+-- reasons: (1) SVD_reduced hard-errors when r=0, since a 0-column reduced
+-- SVD can't be represented by this module's Matrix type -- but the r=0
+-- pseudoinverse is simply the well-defined zero matrix A+ = 0 (n x m), not
+-- an error, so that case is handled directly here instead; (2) SVD_economy
+-- prints a rank-deficiency advisory suggesting SVD_reduced -- appropriate
+-- there, but rank deficiency is the ORDINARY case a pseudoinverse exists
+-- to handle, not something worth warning about here. So this goes straight
+-- to svd_core and does its own economy-slicing and rank_and_tau call.
+--
+-- opts.method and opts.accuracy_mode are validated against the reference
+-- material's named options (same "recognized name, not implemented" style
+-- as SVD_reduced's own opts.method), but only "AUTO"/"BIDIAGONAL_QR"
+-- actually run anything here -- this module has exactly one SVD engine --
+-- and accuracy_mode has no behavioral effect at all (nothing to trade off
+-- with a single fixed algorithm); both exist purely for interface
+-- compatibility with the reference material.
+--
+-- opts.preserve_input isn't a real parameter: every function in this
+-- module already copies rather than mutates its input (Matrix.Scalar_mul,
+-- Core.copy_matrix, etc. all build new tables), so the concern the
+-- reference material raises (LAPACK backends overwriting their input in
+-- place) simply does not apply to this codebase.
+--
+-- opts.verify, when true, computes the four Penrose-equation residuals
+-- (AA+A=A, A+AA+=A+, (AA+)^H=AA+, (A+A)^H=A+A) and warns -- non-fatally,
+-- same discipline as every other advisory in this module -- via stderr if
+-- any exceeds a tolerance scaled by matrix size and effective condition
+-- number, per the reference material's own acceptance-tolerance formula.
+--
+-- opts.return_factors, when true, additionally returns Ur, the retained
+-- singular values, and Vr (not Vr^H -- kept consistent with this module's
+-- existing U/Sigma/V convention, not U/s/Vh) as trailing return values.
+--
+-- NOTE, left as a note per Nacho's own "don't chase every edge case, flag
+-- it and move on" instruction rather than chased here -- this reference
+-- document runs 76 pages and covers far more ground than any single pass
+-- reasonably should: NOT implemented are cross-method comparison (this
+-- module has exactly one SVD method), sparse-input handling (no sparse
+-- Matrix representation exists here), unsupported-precision handling (Lua
+-- numbers are always doubles -- there's no float32/float16 distinction to
+-- guard against), and dependency-injected failure-mocking tests (no seam
+-- for that exists). What WAS run and verified: the four Penrose equations,
+-- the AA+/A+A projector properties (idempotence, Hermitian symmetry,
+-- rank/trace), the involution identity ((A+)+ = A), the conjugate-
+-- transpose and scalar-scaling identities, least-squares and minimum-norm
+-- behavior, the full-row-rank/full-column-rank/square-invertible
+-- identities, and the reference material's named analytical test
+-- matrices (zero, identity, diagonal, rectangular diagonal, scalar,
+-- row/column vector, rank-one outer product, all-ones, orthonormal
+-- columns) -- see the commit message for the actual battery.
+local function Pinv(A, opts)
+    opts = opts or {}
+
+    local method = opts.method or "AUTO"
+    Core.validate(method, "one_of", "Pinv: opts.method",
+        {"AUTO", "DIVIDE_AND_CONQUER", "BIDIAGONAL_QR", "PRECONDITIONED_JACOBI"})
+    assert(method ~= "DIVIDE_AND_CONQUER" and method ~= "PRECONDITIONED_JACOBI",
+        "Pinv: opts.method = \"" .. method .. "\" is a recognized SVD method name, " ..
+        "but this module only implements Golub-Kahan-Reinsch bidiagonal QR -- " ..
+        "\"BIDIAGONAL_QR\" and \"AUTO\" are the only methods actually available here.")
+
+    local accuracy_mode = opts.accuracy_mode or "BALANCED"
+    Core.validate(accuracy_mode, "one_of", "Pinv: opts.accuracy_mode",
+        {"FAST", "BALANCED", "RANK_SENSITIVE"})
+    -- (accepted for interface compatibility; has no behavioral effect --
+    -- see the note above.)
+
+    local U, Sigma, V, sv = svd_core(A, opts)
+    local m, n = #U, #V
+    local p = #sv
+    U = first_cols(U, p)
+    V = first_cols(V, p)
+
+    local r, tau = rank_and_tau(sv, m, n, opts.rtol, opts.atol)
+
+    if r == 0 then
+        -- Well-defined, not an error: the zero matrix's pseudoinverse is
+        -- the zero matrix. kappa_eff is left nil ("undefined"), per the
+        -- reference material's explicit "report undefined rather than
+        -- infinity" instruction.
+        return Matrix.Zeroes(n, m), r, sv, tau, nil
+    end
+
+    local Ur = first_cols(U, r)
+    local Vr = first_cols(V, r)
+    local svr = first_n(sv, r)
+
+    local inv_s = {}
+    for i = 1, r do
+        assert(svr[i] > tau, "Pinv: a discarded singular value was incorrectly retained.")
+        local recip = 1 / svr[i]
+        assert(Core.is_finite_number(recip),
+            "Pinv: the reciprocal of retained singular value " .. i .. " (sigma=" ..
+            tostring(svr[i]) .. ") is not representable -- it is too small relative " ..
+            "to the largest singular value for this floating-point type.")
+        inv_s[i] = recip
+    end
+
+    local W = scale_cols(Vr, inv_s)
+    local Aplus = Matrix.Mat_mul(W, conj_transpose(Ur))
+
+    assert(#Aplus == n and #Aplus[1] == m, "Pinv: the pseudoinverse has incorrect dimensions.")
+    for i = 1, n do
+        for j = 1, m do
+            assert(Core.is_finite_scalar(Aplus[i][j]),
+                "Pinv: the pseudoinverse contains a nonfinite value at [" .. i .. "][" .. j .. "].")
+        end
+    end
+
+    if opts.verify then
+        local AAplus = Matrix.Mat_mul(A, Aplus)
+        local AplusA = Matrix.Mat_mul(Aplus, A)
+        local tiny = 1e-300
+        local e1 = frob_norm(Matrix.Mat_sub(Matrix.Mat_mul(AAplus, A), A)) / math.max(frob_norm(A), tiny)
+        local e2 = frob_norm(Matrix.Mat_sub(Matrix.Mat_mul(AplusA, Aplus), Aplus)) / math.max(frob_norm(Aplus), tiny)
+        local e3 = frob_norm(Matrix.Mat_sub(conj_transpose(AAplus), AAplus)) / math.max(frob_norm(AAplus), tiny)
+        local e4 = frob_norm(Matrix.Mat_sub(conj_transpose(AplusA), AplusA)) / math.max(frob_norm(AplusA), tiny)
+        local d = math.max(m, n)
+        local kappa_eff_for_tol = svr[1] / svr[r]
+        local T = 1000 * d * MACHINE_EPSILON * math.max(1, kappa_eff_for_tol)
+        if e1 > T or e2 > T or e3 > T or e4 > T then
+            io.stderr:write(string.format(
+                "Pinv: verify: one or more Penrose-equation residuals exceeded the " ..
+                "expected tolerance (e1=%.3e, e2=%.3e, e3=%.3e, e4=%.3e, tol=%.3e).\n",
+                e1, e2, e3, e4, T))
+        end
+    end
+
+    local kappa_eff = svr[1] / svr[r]
+    if opts.return_factors then
+        return Aplus, r, sv, tau, kappa_eff, Ur, svr, Vr
+    end
+    return Aplus, r, sv, tau, kappa_eff
+end
+
 return {
     Rayleigh = Rayleigh,
     SVD = SVD,
     SVD_economy = SVD_economy,
     SVD_reduced = SVD_reduced,
     SVD_truncated = SVD_truncated,
+    Pinv = Pinv,
 }
 
 -- B"H.
