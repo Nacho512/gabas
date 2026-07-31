@@ -39,15 +39,13 @@ end
 -- Hermitian inner product (Conjugate(v) . w) used for the quotient itself --
 -- unlike Eigenvalues/Eigenvectors, this never touches qr_decompose.
 local function Rayleigh(matriz, v0, max_iter, tol)
-    local n = #matriz
-    assert(n == #matriz[1], "Rayleigh: matrix must be square.")
-    assert(type(v0) == "table" and #v0 == n,
-        "Rayleigh: seed vector length must match the matrix dimension.")
-    assert(Vector.VNorm(v0) > Core.EPSILON, "Rayleigh: seed vector must not be the zero vector.")
+    local n = Core.assert_matrix(matriz, "Rayleigh: matriz", {square = true})
+    Core.assert_vector(v0, "Rayleigh: seed vector", {length = n})
+    assert(Vector.VNorm(v0) > 0, "Rayleigh: seed vector must not be the zero vector.")
     max_iter = max_iter or 100
-    assert(type(max_iter) == "number" and max_iter >= 1 and max_iter == math.floor(max_iter),
-        "Rayleigh: max_iter must be a positive integer.")
+    Core.assert_positive_integer(max_iter, "Rayleigh: max_iter")
     tol = tol or 1e-12
+    Core.assert_nonneg_number(tol, "Rayleigh: tol")
 
     local v = Vector.VNormalize(v0)
     local mu = Vector.Vdot(Complex.Conjugate(v), mat_vec(matriz, v))
@@ -57,11 +55,20 @@ local function Rayleigh(matriz, v0, max_iter, tol)
         local shifted = Matrix.Mat_sub(matriz, Matrix.Scalar_mul(Matrix.Eye(n), mu))
         local ok, v_next = pcall(Systems.Solve, shifted, v)
         if not ok then
-            -- (A - mu*I) is numerically singular: mu is already essentially
-            -- an eigenvalue -- exactly what convergence looks like, so treat
-            -- it as success rather than propagating Solve's error.
-            converged = true
-            break
+            local message = tostring(v_next)
+            if message:find("matrix A is singular", 1, true) then
+                local Av = mat_vec(matriz, v)
+                local residual = 0
+                for i = 1, n do
+                    residual = math.max(residual, Core.cabs(Av[i] - mu * v[i]))
+                end
+                local scale = math.max(Core.cabs(mu), 1)
+                if Core.is_near_zero(residual, scale, tol, tol) then
+                    converged = true
+                    break
+                end
+            end
+            error("Rayleigh: shifted solve failed before convergence: " .. message, 0)
         end
         v = Vector.VNormalize(v_next)
         local mu_next = Vector.Vdot(Complex.Conjugate(v), mat_vec(matriz, v))
@@ -135,7 +142,7 @@ local function householder(x)
     for i = 2, k do tailnormsq = tailnormsq + Core.cabs(x[i])^2 end
     local alpha = x[1]
     local r = math.sqrt(Core.cabs(alpha)^2 + tailnormsq)
-    if r < Core.EPSILON then
+    if r == 0 then
         local v = {}
         for i = 1, k do v[i] = 0 end
         v[1] = 1
@@ -325,7 +332,7 @@ local function bidiagonal_svd(d_in, e_in, max_iter)
             "a dedicated rank-revealing approach this implementation doesn't cover).")
         local lo = hi
         while lo > 1 do
-            local tol = Core.EPSILON * (math.abs(d[lo - 1]) + math.abs(d[lo]))
+            local tol = Core.DEFAULT_REL_TOL * (math.abs(d[lo - 1]) + math.abs(d[lo])) + Core.DEFAULT_ABS_TOL
             if math.abs(e[lo - 1]) <= tol then
                 e[lo - 1] = 0
                 break
@@ -336,7 +343,7 @@ local function bidiagonal_svd(d_in, e_in, max_iter)
             hi = hi - 1
         else
             Ub, Vb = golub_kahan_step(d, e, n, lo, hi, Ub, Vb)
-            local tol2 = Core.EPSILON * (math.abs(d[hi - 1]) + math.abs(d[hi]))
+            local tol2 = Core.DEFAULT_REL_TOL * (math.abs(d[hi - 1]) + math.abs(d[hi])) + Core.DEFAULT_ABS_TOL
             if math.abs(e[hi - 1]) <= tol2 then
                 e[hi - 1] = 0
                 hi = hi - 1
@@ -387,6 +394,7 @@ local function svd_core(A, opts)
         end
     end
     opts = opts or {}
+    assert(type(opts) == "table", "SVD: opts must be a table.")
     local max_iter = opts.max_iter or 500
     Core.assert_positive_integer(max_iter, "SVD: opts.max_iter")
 
@@ -589,18 +597,13 @@ end
 -- use elsewhere in this module). sv sorted descending means the singular
 -- values clearing tol are always a leading run, so the first one that
 -- doesn't clear it ends the count. Used by SVD_truncated below.
---
--- NOTE (left as a note per Nacho's own "don't chase every edge case, just
--- flag it" instruction, rather than fixed here): despite the comment this
--- carried before SVD_reduced's rewrite below, this uses Core.EPSILON
--- (1e-9, this module's coarse general-purpose "close enough to zero"
--- constant, tuned for things like pivot detection) as if it were machine
--- epsilon (~2.22e-16) -- it isn't. SVD_reduced below no longer makes this
--- mistake (see MACHINE_EPSILON/rank_and_tau); SVD_truncated's call here
--- still does, unchanged, out of scope for this pass.
+-- Codex: default rank detection uses machine epsilon; caller-provided
+-- tolerances remain available for application-specific truncation.
 local function numerical_rank(sv, m, n, tol)
     if tol == nil then
-        tol = math.max(m, n) * Core.EPSILON * (sv[1] or 0)
+        tol = math.max(m, n) * Core.MACHINE_EPSILON * (sv[1] or 0)
+    else
+        Core.assert_nonneg_number(tol, "SVD_truncated: opts.tol")
     end
     local r = 0
     for i = 1, #sv do
@@ -613,11 +616,8 @@ local function numerical_rank(sv, m, n, tol)
     return r
 end
 
--- IEEE-754 double-precision machine epsilon (~2.22e-16) -- NOT Core.EPSILON
--- (see the note on numerical_rank above; conflating the two is exactly
--- what caused the scaling bug fixed earlier in svd_core's safe-scaling
--- step, so it gets its own name here rather than reusing Core.EPSILON).
-local MACHINE_EPSILON = 2.2204460492503131e-16
+-- Codex: use Core's single IEEE-754 double-precision machine epsilon source.
+local MACHINE_EPSILON = Core.MACHINE_EPSILON
 
 -- Numerical-rank threshold and rank, per the reference spec this was built
 -- from: tau = atol + rtol*sv[1], defaulting to rtol = max(m,n)*
@@ -706,6 +706,7 @@ end
 -- (non-fatally, via stderr) before returning.
 local function SVD_reduced(A, opts)
     opts = opts or {}
+    assert(type(opts) == "table", "SVD_reduced: opts must be a table.")
     local method = opts.method or "AUTO"
     Core.validate(method, "one_of", "SVD_reduced: opts.method",
         {"QR", "DIVIDE_AND_CONQUER", "JACOBI", "AUTO"})
@@ -777,6 +778,7 @@ end
 -- just mean k was chosen too small for what the caller actually needed.
 local function SVD_truncated(A, k, opts)
     opts = opts or {}
+    assert(type(opts) == "table", "SVD_truncated: opts must be a table.")
     local U, Sigma, V, sv = svd_core(A, opts)
     local p = #sv
     Core.assert_positive_integer(k, "SVD_truncated: k")
@@ -907,6 +909,7 @@ end
 -- columns) -- see the commit message for the actual battery.
 local function Pinv(A, opts)
     opts = opts or {}
+    assert(type(opts) == "table", "Pinv: opts must be a table.")
 
     local method = opts.method or "AUTO"
     Core.validate(method, "one_of", "Pinv: opts.method",
@@ -994,8 +997,11 @@ return {
     Rayleigh = Rayleigh,
     SVD = SVD,
     SVD_economy = SVD_economy,
+    SVD_Economy = SVD_economy,
     SVD_reduced = SVD_reduced,
+    SVD_Reduced = SVD_reduced,
     SVD_truncated = SVD_truncated,
+    SVD_Truncated = SVD_truncated,
     Pinv = Pinv,
 }
 

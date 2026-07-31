@@ -13,15 +13,9 @@
 -- so nothing here should ever need to depend on Core or any domain module --
 -- if it did, that dependency would almost certainly be pointing backwards.
 
--- Private tolerance for the division-by-zero guard below. Deliberately NOT
--- shared with Core's EPSILON: Core.cabs needs Is_complex from this module,
--- so if this module also required Core (just for EPSILON), the two modules
--- would require each other -- a circular dependency. Keeping this constant
--- private and duplicated here (same value, 1e-9) is a small, honest
--- tradeoff to keep the dependency graph a clean one-way arrow: Core depends
--- on Complex, never the reverse.
-
-local DIV_EPSILON = 1e-9
+-- Codex: division rejects only an exact zero denominator. Approximate-zero
+-- policy belongs to callers because a fixed threshold would incorrectly
+-- reject legitimate, representable small complex values.
 
 local Complex_mt = {}
 Complex_mt.__index = Complex_mt
@@ -32,7 +26,10 @@ end
 
 local function Complex(re, im)
     re, im = re or 0, im or 0
-    assert(type(re) == "number" and type(im) == "number", "Complex: re and im must be numbers.")
+    assert(type(re) == "number" and type(im) == "number" and
+        re == re and im == im and re ~= math.huge and re ~= -math.huge and
+        im ~= math.huge and im ~= -math.huge,
+        "Complex: re and im must be finite numbers.")
     return setmetatable({re = re, im = im}, Complex_mt)
 end
 
@@ -62,9 +59,15 @@ end
 
 function Complex_mt.__div(a, b)
     a, b = to_complex(a), to_complex(b)
-    local denom = b.re * b.re + b.im * b.im
-    assert(denom > DIV_EPSILON, "Complex: division by zero.")
-    return Complex((a.re * b.re + a.im * b.im) / denom, (a.im * b.re - a.re * b.im) / denom)
+    assert(b.re ~= 0 or b.im ~= 0, "Complex: division by zero.")
+    if math.abs(b.re) >= math.abs(b.im) then
+        local ratio = b.im / b.re
+        local denom = b.re + b.im * ratio
+        return Complex((a.re + a.im * ratio) / denom, (a.im - a.re * ratio) / denom)
+    end
+    local ratio = b.re / b.im
+    local denom = b.im + b.re * ratio
+    return Complex((a.re * ratio + a.im) / denom, (a.im * ratio - a.re) / denom)
 end
 
 function Complex_mt.__unm(a)
@@ -119,5 +122,6 @@ end
 return {
     Complex = Complex,
     Is_complex = is_complex,
+    Is_Complex = is_complex,
     Conjugate = Conjugate,
 }

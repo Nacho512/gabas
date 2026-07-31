@@ -45,10 +45,34 @@ local function qr_decompose(mat)
             norm = norm + q_cols[j][r] ^ 2
         end
         norm = math.sqrt(norm)
-        assert(norm > Core.EPSILON, "qr_decompose: matrix is numerically singular.")
         R[j][j] = norm
-        for r = 1, n do
-            q_cols[j][r] = q_cols[j][r] / norm
+        if Core.is_near_zero(norm, 1, Core.MACHINE_EPSILON, Core.MACHINE_EPSILON) then
+            -- Codex: a rank-deficient column has zero residual but QR remains
+            -- well-defined; complete Q with an orthogonal coordinate vector.
+            local replacement
+            for candidate = 1, n do
+                local w = {}
+                for r = 1, n do w[r] = (r == candidate) and 1 or 0 end
+                for i = 1, j - 1 do
+                    local dot = 0
+                    for r = 1, n do dot = dot + q_cols[i][r] * w[r] end
+                    for r = 1, n do w[r] = w[r] - dot * q_cols[i][r] end
+                end
+                local wnorm = 0
+                for r = 1, n do wnorm = wnorm + w[r] ^ 2 end
+                wnorm = math.sqrt(wnorm)
+                if wnorm > Core.MACHINE_EPSILON then
+                    for r = 1, n do w[r] = w[r] / wnorm end
+                    replacement = w
+                    break
+                end
+            end
+            assert(replacement, "qr_decompose: unable to complete an orthonormal basis.")
+            q_cols[j] = replacement
+        else
+            for r = 1, n do
+                q_cols[j][r] = q_cols[j][r] / norm
+            end
         end
     end
 
@@ -65,14 +89,7 @@ local function qr_decompose(mat)
 end
 
 local function assert_real_matrix(matriz, fn_name)
-    for i = 1, #matriz do
-        for j = 1, #matriz[i] do
-            assert(not Complex.Is_complex(matriz[i][j]),
-                fn_name .. ": Complex-entry input matrices are not supported (the QR " ..
-                "iteration only runs in real arithmetic); Complex eigenvalues can still " ..
-                "occur in the *output* for a real matrix with a complex-conjugate pair.")
-        end
-    end
+    return Core.assert_matrix(matriz, fn_name .. ": matriz", {square = true, real = true})
 end
 
 -- Unshifted QR algorithm: iterating A <- R*Q (from A's QR decomposition)
@@ -86,16 +103,14 @@ end
 -- resolves the old "won't converge for complex eigenvalues" limitation,
 -- without needing a complex-arithmetic QR implementation.
 local function Eigenvalues(matriz, max_iter, tol)
-    local n = #matriz
-    assert(n == #matriz[1], "Eigenvalues: matrix must be square.")
-    assert_real_matrix(matriz, "Eigenvalues")
+    local n = assert_real_matrix(matriz, "Eigenvalues")
     max_iter = max_iter or 500
     -- Silently accepting max_iter <= 0 would just skip the whole iteration
     -- and return the unconverged input read straight off the diagonal --
     -- wrong, but without any error to say so.
-    assert(type(max_iter) == "number" and max_iter >= 1 and max_iter == math.floor(max_iter),
-        "Eigenvalues: max_iter must be a positive integer.")
+    Core.assert_positive_integer(max_iter, "Eigenvalues: max_iter")
     tol = tol or 1e-10
+    Core.assert_nonneg_number(tol, "Eigenvalues: tol")
 
     local A = Core.copy_matrix(matriz)
 
@@ -141,24 +156,22 @@ local function Eigenvalues(matriz, max_iter, tol)
     return eigenvalues
 end
 
--- Same iteration as Eigenvalues, additionally accumulating the orthogonal
--- factors Q_total = Q_1 * Q_2 * ... ; its columns converge to the
--- eigenvectors. Rigorously guaranteed for symmetric matrices; treat the
--- vectors as approximate for general (non-symmetric) matrices. For a matrix
--- with a complex-conjugate eigenvalue pair, the corresponding two columns
--- of Q_total only span the associated real 2-D invariant subspace, not the
--- individual complex eigenvectors -- use Eigenvalues() for the (possibly
--- complex) eigenvalues themselves; extracting the true complex eigenvectors
--- for those pairs isn't implemented yet. Returns eigenvalues, and a matrix
--- whose column k is the eigenvector for eigenvalues[k].
+-- Codex: Eigenvectors is intentionally restricted to finite real symmetric
+-- matrices, for which accumulated QR factors converge to an orthonormal
+-- eigenbasis. General and complex eigenvectors remain future work.
 local function Eigenvectors(matriz, max_iter, tol)
-    local n = #matriz
-    assert(n == #matriz[1], "Eigenvectors: matrix must be square.")
-    assert_real_matrix(matriz, "Eigenvectors")
+    local n = assert_real_matrix(matriz, "Eigenvectors")
+    for i = 1, n do
+        for j = i + 1, n do
+            local scale = math.max(math.abs(matriz[i][j]), math.abs(matriz[j][i]), 1)
+            assert(Core.is_near_zero(matriz[i][j] - matriz[j][i], scale),
+                "Eigenvectors: matriz must be symmetric; general real matrices are not supported yet.")
+        end
+    end
     max_iter = max_iter or 500
-    assert(type(max_iter) == "number" and max_iter >= 1 and max_iter == math.floor(max_iter),
-        "Eigenvectors: max_iter must be a positive integer.")
+    Core.assert_positive_integer(max_iter, "Eigenvectors: max_iter")
     tol = tol or 1e-10
+    Core.assert_nonneg_number(tol, "Eigenvectors: tol")
 
     local A = Core.copy_matrix(matriz)
     local Q_total = Matrix.Eye(n)
@@ -203,11 +216,12 @@ local function GRAM_SCH(vectores, tol)
     local k = #vectores
     assert(type(vectores[1]) == "table" and #vectores[1] > 0, "GRAM_SCH: vectors must be non-empty.")
     local dim = #vectores[1]
+    Core.assert_vector(vectores[1], "GRAM_SCH: vectores[1]")
     for i = 2, k do
-        assert(type(vectores[i]) == "table" and #vectores[i] == dim,
-            "GRAM_SCH: all vectors must have the same length.")
+        Core.assert_vector(vectores[i], "GRAM_SCH: vectores[" .. i .. "]", {length = dim})
     end
     tol = tol or 1e-10
+    Core.assert_nonneg_number(tol, "GRAM_SCH: tol")
 
     local basis = {}
     for i = 1, k do
@@ -241,4 +255,5 @@ return {
     Eigenvalues = Eigenvalues,
     Eigenvectors = Eigenvectors,
     GRAM_SCH = GRAM_SCH,
+    Gram_Sch = GRAM_SCH,
 }
