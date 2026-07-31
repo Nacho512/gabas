@@ -2,7 +2,7 @@
 # Codex-Specific Mandatory Working Rules
 ## These instructions are intended for Codex
 
-For every single session from now on, ALWAYS FOLLOW THE NEXT INSTRUCTIONS, UNLESS INSTRUCTED OTHERWISE:\n\n
+For every single session from now on, ALWAYS FOLLOW THE NEXT INSTRUCTIONS, UNLESS INSTRUCTED OTHERWISE:
 
 1. Do not ask for confirmation unless the decision is irreversible or changes public behavior. Make reasonable assumptions, state them briefly, implement, and test. ASK ME ONLY IF YOU HAVE ANY QUESTION REGARDING A CONFLICT BETWEEN THE CURRENT SITUATION AND THESE RULES.
 
