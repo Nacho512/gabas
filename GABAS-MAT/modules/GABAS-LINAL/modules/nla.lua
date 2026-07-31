@@ -380,24 +380,15 @@ local function svd_core(A, opts)
             "SVD: A must be rectangular -- every row must have the same length.")
         for j = 1, n do
             local v = A[i][j]
-            if is_complex(v) then
-                assert(type(v.re) == "number" and type(v.im) == "number" and
-                    v.re == v.re and v.im == v.im and
-                    v.re ~= math.huge and v.re ~= -math.huge and
-                    v.im ~= math.huge and v.im ~= -math.huge,
-                    "SVD: entry A[" .. i .. "][" .. j .. "] is not finite (NaN/Inf).")
-            else
-                assert(type(v) == "number",
-                    "SVD: entry A[" .. i .. "][" .. j .. "] must be a number or a Complex value.")
-                assert(v == v and v ~= math.huge and v ~= -math.huge,
-                    "SVD: entry A[" .. i .. "][" .. j .. "] is not finite (NaN/Inf).")
-            end
+            assert(is_complex(v) or type(v) == "number",
+                "SVD: entry A[" .. i .. "][" .. j .. "] must be a number or a Complex value.")
+            assert(Core.is_finite_scalar(v),
+                "SVD: entry A[" .. i .. "][" .. j .. "] is not finite (NaN/Inf).")
         end
     end
     opts = opts or {}
     local max_iter = opts.max_iter or 500
-    assert(type(max_iter) == "number" and max_iter >= 1 and max_iter == math.floor(max_iter),
-        "SVD: opts.max_iter must be a positive integer.")
+    Core.assert_positive_integer(max_iter, "SVD: opts.max_iter")
 
     -- All-zero matrix: quick exit, per the spec's Phase 2 -- also sidesteps
     -- a division by zero in the scaling step below.
@@ -651,15 +642,11 @@ local MACHINE_EPSILON = 2.2204460492503131e-16
 local function rank_and_tau(sv, m, n, rtol, atol)
     if rtol == nil then rtol = math.max(m, n) * MACHINE_EPSILON end
     if atol == nil then atol = 0 end
-    assert(type(rtol) == "number" and rtol == rtol and
-        rtol ~= math.huge and rtol ~= -math.huge and rtol >= 0,
-        "SVD_reduced: opts.rtol must be a finite nonnegative number.")
-    assert(type(atol) == "number" and atol == atol and
-        atol ~= math.huge and atol ~= -math.huge and atol >= 0,
-        "SVD_reduced: opts.atol must be a finite nonnegative number.")
+    Core.assert_nonneg_number(rtol, "SVD_reduced: opts.rtol")
+    Core.assert_nonneg_number(atol, "SVD_reduced: opts.atol")
     local s_max = sv[1] or 0
     local tau = atol + rtol * s_max
-    assert(tau == tau and tau ~= math.huge,
+    assert(Core.is_finite_number(tau),
         "SVD_reduced: the numerical-rank threshold (tau) could not be calculated.")
     local r = 0
     for i = 1, #sv do
@@ -699,11 +686,8 @@ end
 local function SVD_reduced(A, opts)
     opts = opts or {}
     local method = opts.method or "AUTO"
-    assert(type(method) == "string" and
-        (method == "QR" or method == "AUTO" or
-         method == "DIVIDE_AND_CONQUER" or method == "JACOBI"),
-        "SVD_reduced: opts.method must be one of \"QR\", \"DIVIDE_AND_CONQUER\", " ..
-        "\"JACOBI\", or \"AUTO\".")
+    Core.validate(method, "one_of", "SVD_reduced: opts.method",
+        {"QR", "DIVIDE_AND_CONQUER", "JACOBI", "AUTO"})
     assert(method ~= "DIVIDE_AND_CONQUER" and method ~= "JACOBI",
         "SVD_reduced: opts.method = \"" .. method .. "\" is a recognized SVD method " ..
         "name, but this module only implements Golub-Kahan-Reinsch bidiagonal QR -- " ..
@@ -774,8 +758,8 @@ local function SVD_truncated(A, k, opts)
     opts = opts or {}
     local U, Sigma, V, sv = svd_core(A, opts)
     local p = #sv
-    assert(type(k) == "number" and k == math.floor(k) and k >= 1 and k <= p,
-        "SVD_truncated: k must be an integer with 1 <= k <= min(m,n) (= " .. p .. ").")
+    Core.assert_positive_integer(k, "SVD_truncated: k")
+    assert(k <= p, "SVD_truncated: k must not exceed min(m,n) (= " .. p .. ").")
 
     local r = numerical_rank(sv, #U, #V, opts.tol)
 
