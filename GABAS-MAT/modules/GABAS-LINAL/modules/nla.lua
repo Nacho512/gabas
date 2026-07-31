@@ -583,17 +583,6 @@ local function first_n(v, n)
     return r
 end
 
--- Economy SVD: A = U_p*Sigma_p*V_p^H, U_p (m x p), Sigma_p (p x p),
--- V_p (n x p), p = min(m,n). Still an EXACT decomposition of A -- the
--- columns/rows dropped relative to Full SVD are only the ones that
--- pair with Sigma's all-zero padding (present whenever m ~= n), never
--- with an actual singular value. See svd_core for opts.
-local function SVD_economy(A, opts)
-    local U, Sigma, V, sv = svd_core(A, opts)
-    local p = #sv
-    return first_cols(U, p), top_left_block(Sigma, p), first_cols(V, p), sv
-end
-
 -- Numerical rank from an already-sorted-descending sv: how many clear a
 -- tolerance scaled to the matrix's own size and largest singular value
 -- (max(m,n) * machine epsilon * sv[1] -- the same convention Rank()/MDet()
@@ -657,6 +646,38 @@ local function rank_and_tau(sv, m, n, rtol, atol)
         end
     end
     return r, tau
+end
+
+-- Economy SVD: A = U_p*Sigma_p*V_p^H, U_p (m x p), Sigma_p (p x p),
+-- V_p (n x p), p = min(m,n). Still an EXACT decomposition of A -- the
+-- columns/rows dropped relative to Full SVD are only the ones that pair
+-- with Sigma's all-zero padding (present whenever m ~= n), never with an
+-- actual singular value. Unlike Reduced above, economy ALWAYS returns
+-- exactly p components regardless of A's rank -- zero (or
+-- numerically-zero) singular values are kept, not dropped; a
+-- rank-deficient A must not silently come back looking like a reduced
+-- SVD (this is the whole distinction the reference material this was
+-- built from spends its 8th section on). See svd_core for opts.
+--
+-- Advisory, not correctness: if A turns out to be rank-deficient
+-- (numerically-estimated rank r < p, using rank_and_tau's default
+-- tolerance purely to decide whether to print this -- not exposed as a
+-- parameter here), some of the p returned components correspond to ~0
+-- singular values that SVD_reduced would have dropped; flagged
+-- non-fatally via stderr in case that's actually what the caller wanted,
+-- same spirit as SVD_reduced's/SVD_truncated's own advisories.
+local function SVD_economy(A, opts)
+    local U, Sigma, V, sv = svd_core(A, opts)
+    local p = #sv
+    local r = rank_and_tau(sv, #U, #V)
+    if r < p then
+        io.stderr:write(string.format(
+            "SVD_economy: A is numerically rank-deficient (rank ~%d of %d); the " ..
+            "%d extra component(s) returned have ~0 singular values. If you only " ..
+            "want the numerically-nonzero components, consider SVD_reduced " ..
+            "instead.\n", r, p, p - r))
+    end
+    return first_cols(U, p), top_left_block(Sigma, p), first_cols(V, p), sv
 end
 
 -- Reduced SVD: A = U_r*Sigma_r*V_r^H, U_r (m x r), Sigma_r (r x r),
