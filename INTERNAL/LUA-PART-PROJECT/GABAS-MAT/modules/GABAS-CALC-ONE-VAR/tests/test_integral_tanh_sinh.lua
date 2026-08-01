@@ -45,7 +45,7 @@ assert(s6 == "SUCCESS")
 assert(d6.levels <= 8, "an ordinary integrand should converge in a handful of levels")
 
 -- Input validation.
-Testing.Assert_error(function() return TS("not a function", 0, 1) end, "Integral_tanh_sinh: f")
+Testing.Assert_error(function() return TS(42, 0, 1) end, "Integral_tanh_sinh: f")
 Testing.Assert_error(function() return TS(math.sin, 1, 0) end, "Integral_tanh_sinh: a must be less than b")
 
 -- The interval's own center is checked strictly: a genuinely broken f

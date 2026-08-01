@@ -36,6 +36,7 @@ local Complex = require("GABAS-LINAL.modules.complex")
 local Core = require("GABAS-CALC-ONE-VAR.modules.core")
 local Quadrature = require("GABAS-CALC-ONE-VAR.modules.quadrature")
 local TanhSinh = require("GABAS-CALC-ONE-VAR.modules.tanh_sinh")
+local CompileExpression = require("GABAS-CALC-ONE-VAR.modules.compile_expression")
 
 -- Claude: compensated (Neumaier/Kahan) summation over a list of plain
 -- reals or Complex values, real and imaginary parts compensated
@@ -97,7 +98,7 @@ end
 local function Integral_definite(f, a, b, opts)
     opts = opts or {}
     assert(type(opts) == "table", "Integral_definite: opts must be a table.")
-    Core.assert_callable(f, "Integral_definite: f")
+    f = CompileExpression.Resolve_function(f, "Integral_definite: f")
     Core.assert_finite_number(a, "Integral_definite: a")
     Core.assert_finite_number(b, "Integral_definite: b")
 
@@ -220,7 +221,7 @@ end
 -- explicitly calls out (section 18.5) as an input error, since
 -- math.huge < math.huge is false.
 local function Integral_infinite(f, a, b, opts)
-    Core.assert_callable(f, "Integral_infinite: f")
+    f = CompileExpression.Resolve_function(f, "Integral_infinite: f")
     assert(type(a) == "number" and a == a, "Integral_infinite: a must be a number (possibly +-math.huge).")
     assert(type(b) == "number" and b == b, "Integral_infinite: b must be a number (possibly +-math.huge).")
     assert(a < b, "Integral_infinite: a must be less than b.")
@@ -284,7 +285,7 @@ end
 -- principal value; Integral_definite on the symmetric part correctly
 -- reports failure/non-convergence for that case rather than a false one.
 local function Integral_principal_value(f, a, b, c, opts)
-    Core.assert_callable(f, "Integral_principal_value: f")
+    f = CompileExpression.Resolve_function(f, "Integral_principal_value: f")
     Core.assert_finite_number(a, "Integral_principal_value: a")
     Core.assert_finite_number(b, "Integral_principal_value: b")
     Core.assert_finite_number(c, "Integral_principal_value: c")
@@ -395,7 +396,7 @@ end
 local function Integral_tanh_sinh(f, a, b, opts)
     opts = opts or {}
     assert(type(opts) == "table", "Integral_tanh_sinh: opts must be a table.")
-    Core.assert_callable(f, "Integral_tanh_sinh: f")
+    f = CompileExpression.Resolve_function(f, "Integral_tanh_sinh: f")
     Core.assert_finite_number(a, "Integral_tanh_sinh: a")
     Core.assert_finite_number(b, "Integral_tanh_sinh: b")
     assert(a < b, "Integral_tanh_sinh: a must be less than b.")

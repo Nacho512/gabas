@@ -54,7 +54,7 @@ local _, _, status_hard = I(f_oscillatory, 2, 10, {max_intervals = 200})
 assert(status_hard ~= "SUCCESS", "a highly oscillatory range must not report false convergence")
 
 -- Input validation, mirroring Derivative_at_point's contract.
-Testing.Assert_error(function() return I("not a function", 0, 1) end, "Integral_definite: f")
+Testing.Assert_error(function() return I(42, 0, 1) end, "Integral_definite: f")
 Testing.Assert_error(function() return I(math.sin, "0", 1) end, "Integral_definite: a")
 Testing.Assert_error(function() return I(math.sin, 0, 1, {abs_tol = -1}) end, "Integral_definite: opts.abs_tol")
 Testing.Assert_error(function() return I(math.sin, 0, 1, {abs_tol = 0, rel_tol = 0}) end,
