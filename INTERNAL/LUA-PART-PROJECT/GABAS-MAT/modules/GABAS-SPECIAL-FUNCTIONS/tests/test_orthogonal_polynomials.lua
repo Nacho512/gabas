@@ -139,3 +139,45 @@ Testing.Assert_close(SpecialFunctions.Legendre_p(34, -2), 2797276292689877223.3,
 Testing.Assert_error(function() return SpecialFunctions.Legendre_p(-1, 0.5) end, "Legendre_p: n must be a nonnegative integer")
 Testing.Assert_error(function() return SpecialFunctions.Legendre_p(1.5, 0.5) end, "Legendre_p: n must be a nonnegative integer")
 Testing.Assert_error(function() return SpecialFunctions.Legendre_p(0, "1") end, "Legendre_p: x")
+
+-- ===== Hermite_h =====
+--
+-- Reference values below are mpmath's hermite() (physicists'
+-- convention) at 30-digit working precision (an independent, trusted
+-- reference), not values this implementation itself produced.
+
+local hermite_h_ref = {
+    {0, 0.5, 1.0}, {1, 0.5, 1.0}, {2, 0.5, -1.0}, {3, 0.5, -5.0},
+    {5, 0.3, 31.75776}, {10, 0.9, 26314.366684262397},
+    {0, 2, 1.0}, {1, 2, 4.0}, {3, 2, 40.0}, {5, 1.5, -117.0},
+    {6, 5, 717880.0}, {8, 1.2, 594.57048575999936},
+}
+for _, case in ipairs(hermite_h_ref) do
+    local n, x, ref = case[1], case[2], case[3]
+    local tol = math.max(math.abs(ref) * 1e-9, 1e-9)
+    Testing.Assert_close(SpecialFunctions.Hermite_h(n, x), ref, tol, "Hermite_h(" .. n .. "," .. x .. ")")
+end
+
+-- Closed forms at x=0: H_n(0)=0 for odd n; a few known even-n values.
+for _, n in ipairs({1, 3, 5, 7}) do
+    assert(SpecialFunctions.Hermite_h(n, 0) == 0, "Hermite_h(" .. n .. ",0) == 0")
+end
+assert(SpecialFunctions.Hermite_h(0, 0) == 1, "Hermite_h(0,0) == 1")
+assert(SpecialFunctions.Hermite_h(2, 0) == -2, "Hermite_h(2,0) == -2")
+assert(SpecialFunctions.Hermite_h(4, 0) == 12, "Hermite_h(4,0) == 12")
+
+-- H_n(-x) = (-1)^n * H_n(x).
+for _, n in ipairs({0, 1, 2, 3, 7}) do
+    local x = 1.7
+    local expected = ((n % 2 == 0) and 1 or -1) * SpecialFunctions.Hermite_h(n, x)
+    Testing.Assert_close(SpecialFunctions.Hermite_h(n, -x), expected, 1e-6,
+        "Hermite_h(" .. n .. ",-x) = (-1)^" .. n .. "*Hermite_h(" .. n .. ",x)")
+end
+
+-- Same integer-only-argument spot check as Legendre_p above.
+Testing.Assert_close(SpecialFunctions.Hermite_h(34, -2), 4.5791990566263883069e+24, 4.5791990566263883069e+24 * 1e-9,
+    "Hermite_h(34,-2) stays accurate with integer-only arguments")
+
+Testing.Assert_error(function() return SpecialFunctions.Hermite_h(-1, 0.5) end, "Hermite_h: n must be a nonnegative integer")
+Testing.Assert_error(function() return SpecialFunctions.Hermite_h(1.5, 0.5) end, "Hermite_h: n must be a nonnegative integer")
+Testing.Assert_error(function() return SpecialFunctions.Hermite_h(0, "1") end, "Hermite_h: x")
