@@ -1,6 +1,7 @@
 -- [Roots Numeric]
 -- Numerical root-finding for a REAL one-variable function: Bisection,
--- Newton-Raphson, and Secant. Named "roots_numeric" (not just "roots") to
+-- Newton-Raphson, Secant, and Brent-Dekker. Named "roots_numeric" (not
+-- just "roots") to
 -- leave the name "roots_symbolic" free for a future closed-form/symbolic
 -- root solver (quadratic formula, polynomial factoring, ...) -- that is
 -- CAS-territory, a different, later phase of this project, exactly like
@@ -199,8 +200,134 @@ local function Secant(f, x0, x1, opts)
     return x1, nil, "MAX_ITERATIONS_REACHED", {iterations = max_iterations, residual = math.abs(f1)}
 end
 
+-- Brent(f, a, b, opts) -> root, estimated_error, status, diagnostics
+--
+-- Brent-Dekker's method: the same unconditional-convergence guarantee as
+-- Bisection (requires the same valid bracket -- f(a) and f(b) must have
+-- opposite signs), combined with the speed of Secant/inverse quadratic
+-- interpolation whenever that faster step is actually making adequate
+-- progress, falling back to a bisection step whenever it is not. This is
+-- the standard general-purpose root finder (the same algorithm behind
+-- scipy.optimize.brentq, GSL's gsl_root_fsolver_brent, and MATLAB's
+-- fzero).
+--
+-- Claude: transcribed from the classical reference algorithm (Brent,
+-- "Algorithms for Minimization without Derivatives", 1973; Forsythe,
+-- Malcolm & Moler's "zeroin", Netlib) variable-for-variable, not
+-- improvised -- the same discipline as the QK21 quadrature tables. a, b,
+-- c track three points (c is the previous best bracket endpoint, kept so
+-- an inverse quadratic step has three distinct points to interpolate
+-- through); d is the last step size actually taken, e the one before
+-- that (needed to judge whether interpolation is converging fast enough
+-- to keep trusting it, or has stalled and must yield to bisection).
+--
+-- opts (all optional): tol (default 1e-12), max_iterations (default
+-- 100).
+local function Brent(f, a, b, opts)
+    opts = opts or {}
+    assert(type(opts) == "table", "Brent: opts must be a table.")
+    f = CompileExpression.Resolve_function(f, "Brent: f")
+    Core.assert_finite_number(a, "Brent: a")
+    Core.assert_finite_number(b, "Brent: b")
+    assert(a ~= b, "Brent: a and b must be distinct.")
+
+    local tol = opts.tol or 1e-12
+    Core.assert_positive_number(tol, "Brent: opts.tol")
+    local max_iterations = opts.max_iterations or 100
+    Core.assert_positive_integer(max_iterations, "Brent: opts.max_iterations")
+
+    local fa = f(a)
+    Core.assert_finite_number(fa, "Brent: f(a)")
+    if fa == 0 then
+        return a, 0, "SUCCESS", {iterations = 0, residual = 0}
+    end
+    local fb = f(b)
+    Core.assert_finite_number(fb, "Brent: f(b)")
+    if fb == 0 then
+        return b, 0, "SUCCESS", {iterations = 0, residual = 0}
+    end
+    assert((fa < 0) ~= (fb < 0),
+        "Brent: f(a) and f(b) must have opposite signs (no sign change detected on [a,b]).")
+
+    local c, fc = a, fa
+    local d = b - a
+    local e = d
+    local eps = Core.MACHINE_EPSILON
+
+    for iteration = 1, max_iterations do
+        if math.abs(fc) < math.abs(fb) then
+            a, b, c = b, c, b
+            fa, fb, fc = fb, fc, fb
+        end
+
+        local tol1 = 2 * eps * math.abs(b) + 0.5 * tol
+        local xm = 0.5 * (c - b)
+
+        if math.abs(xm) <= tol1 or fb == 0 then
+            return b, math.abs(xm), "SUCCESS", {iterations = iteration - 1, residual = math.abs(fb)}
+        end
+
+        if math.abs(e) < tol1 or math.abs(fa) <= math.abs(fb) then
+            -- Interpolation isn't trusted this round (too little progress
+            -- last time, or the "third point" a isn't even a better
+            -- bracket than b) -- bisect instead.
+            d = xm
+            e = d
+        else
+            local p, q
+            if a == c then
+                -- Only two distinct points available -- secant step.
+                local s = fb / fa
+                p = 2 * xm * s
+                q = 1 - s
+            else
+                -- Three distinct points -- inverse quadratic interpolation.
+                local q1 = fa / fc
+                local r = fb / fc
+                local s = fb / fa
+                p = s * (2 * xm * q1 * (q1 - r) - (b - a) * (r - 1))
+                q = (q1 - 1) * (r - 1) * (s - 1)
+            end
+            if p > 0 then
+                q = -q
+            else
+                p = -p
+            end
+            -- Accept the interpolated step only if it lands safely inside
+            -- the bracket and shrinks it by a reasonable factor -- else
+            -- fall back to bisection (this is what makes Brent's method
+            -- unconditionally as safe as plain bisection).
+            if 2 * p < math.min(3 * xm * q - math.abs(tol1 * q), math.abs(e * q)) then
+                e = d
+                d = p / q
+            else
+                d = xm
+                e = d
+            end
+        end
+
+        a, fa = b, fb
+        if math.abs(d) > tol1 then
+            b = b + d
+        else
+            b = b + (xm > 0 and tol1 or -tol1)
+        end
+        fb = f(b)
+        Core.assert_finite_number(fb, "Brent: f(x)")
+
+        if (fb < 0) == (fc < 0) then
+            c, fc = a, fa
+            d = b - a
+            e = d
+        end
+    end
+
+    return b, math.abs(0.5 * (c - b)), "MAX_ITERATIONS_REACHED", {iterations = max_iterations, residual = math.abs(fb)}
+end
+
 return {
     Bisection = Bisection,
     Newton = Newton,
     Secant = Secant,
+    Brent = Brent,
 }
