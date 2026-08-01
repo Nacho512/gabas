@@ -59,3 +59,107 @@ Testing.Assert_error(function() return SpecialFunctions.Log_gamma(-2) end,
 assert(SpecialFunctions.Gamma(200) == math.huge, "Gamma(200) must overflow to +inf (the true value exceeds a double)")
 Testing.Assert_close(SpecialFunctions.Log_gamma(200), 857.9336698258575, 1e-9,
     "Log_gamma(200) stays finite and accurate even where Gamma itself overflows")
+
+-- ===== Beta / Log_beta =====
+--
+-- Reference values below are mpmath's own beta() at 30-digit working
+-- precision (an independent, trusted reference distinct from this
+-- module's own Log_gamma-based formula), plus a cross-check against
+-- Beta's DEFINING INTEGRAL for a few values -- two independent
+-- verifications, not just one formula checked against itself.
+
+Testing.Assert_close(SpecialFunctions.Beta(1, 1), 1, 1e-12, "Beta(1,1) = 1")
+Testing.Assert_close(SpecialFunctions.Beta(0.5, 0.5), math.pi, 1e-9, "Beta(0.5,0.5) = pi")
+Testing.Assert_close(SpecialFunctions.Beta(2, 3), 1 / 12, 1e-12, "Beta(2,3) = 1/12")
+Testing.Assert_close(SpecialFunctions.Beta(10, 20), 4.9925087406346777e-09, 1e-9, "Beta(10,20)")
+Testing.Assert_close(SpecialFunctions.Beta(2.5, 3.7), 0.032727368606257838, 1e-9, "Beta(2.5,3.7)")
+Testing.Assert_close(SpecialFunctions.Beta(0.1, 0.1), 19.714639489050161, 1e-8, "Beta(0.1,0.1)")
+
+-- The overflow case: Gamma(100)*Gamma(100)/Gamma(200) computed naively
+-- would divide by +inf (Gamma(200) already overflows a double) and give
+-- a silently WRONG 0 -- Beta(100,100) is actually an ordinary, tiny but
+-- nonzero positive number. Verified this really is what the naive
+-- formula does, in Python, before writing Log_beta this way.
+Testing.Assert_close(SpecialFunctions.Beta(100, 100), 2.2087606931995026e-61, 1e-70, "Beta(100,100), the overflow case")
+
+-- Cross-check against the defining integral, via a fine Riemann sum
+-- (independent of Log_gamma entirely) -- not exact quadrature, so a
+-- looser tolerance.
+local function beta_by_integral(a, b, n)
+    local sum, h = 0, 1 / n
+    for i = 1, n - 1 do
+        local t = i * h
+        sum = sum + (t ^ (a - 1)) * ((1 - t) ^ (b - 1))
+    end
+    return sum * h
+end
+Testing.Assert_close(SpecialFunctions.Beta(2, 3), beta_by_integral(2, 3, 200000), 1e-4,
+    "Beta(2,3) matches its own defining integral, computed independently")
+Testing.Assert_close(SpecialFunctions.Beta(5, 5), beta_by_integral(5, 5, 200000), 1e-6,
+    "Beta(5,5) matches its own defining integral, computed independently")
+
+-- Log_beta internal consistency.
+for _, ab in ipairs({{1, 1}, {2, 3}, {10, 20}, {100, 100}}) do
+    Testing.Assert_close(SpecialFunctions.Log_beta(ab[1], ab[2]), math.log(SpecialFunctions.Beta(ab[1], ab[2])), 1e-8,
+        "Log_beta == log(Beta) at a=" .. ab[1] .. ",b=" .. ab[2])
+end
+
+-- Input validation: a, b must both be strictly positive.
+Testing.Assert_error(function() return SpecialFunctions.Beta(0, 1) end, "Beta: a must be positive")
+Testing.Assert_error(function() return SpecialFunctions.Beta(1, -1) end, "Beta: b must be positive")
+Testing.Assert_error(function() return SpecialFunctions.Beta("1", 1) end, "Beta: a")
+Testing.Assert_error(function() return SpecialFunctions.Log_beta(0, 1) end, "Log_beta: a must be positive")
+
+-- ===== Gamma_p / Gamma_q =====
+
+Testing.Assert_close(SpecialFunctions.Gamma_p(1, 1), 1 - math.exp(-1), 1e-12, "Gamma_p(1,x) = 1-e^-x (exponential CDF)")
+assert(SpecialFunctions.Gamma_p(2, 0) == 0, "Gamma_p(a,0) == 0")
+assert(SpecialFunctions.Gamma_q(2, 0) == 1, "Gamma_q(a,0) == 1")
+for _, ax in ipairs({{1, 1}, {2, 5}, {0.5, 3}, {10, 8}, {10, 15}}) do
+    local p, q = SpecialFunctions.Gamma_p(ax[1], ax[2]), SpecialFunctions.Gamma_q(ax[1], ax[2])
+    Testing.Assert_close(p + q, 1, 1e-9, "Gamma_p+Gamma_q == 1 at a=" .. ax[1] .. ",x=" .. ax[2])
+end
+
+Testing.Assert_error(function() return SpecialFunctions.Gamma_p(0, 1) end, "Gamma_p: a must be positive")
+Testing.Assert_error(function() return SpecialFunctions.Gamma_p(1, -1) end, "Gamma_p: x must be nonnegative")
+
+-- ===== Erf / Erfc =====
+--
+-- Reference values below are Python's math.erf/math.erfc (independent,
+-- trusted references), not values this implementation itself produced.
+
+local erf_ref = {
+    [0.001] = 0.0011283787909692365, [0.1] = 0.1124629160182849, [0.5] = 0.5204998778130465,
+    [1] = 0.8427007929497149, [1.5] = 0.9661051464753108, [2] = 0.9953222650189527,
+    [2.5] = 0.999593047982555, [3] = 0.9999779095030014, [4] = 0.9999999845827421,
+    [-0.5] = -0.5204998778130465, [-1] = -0.8427007929497149, [-2] = -0.9953222650189527,
+}
+for x, ref in pairs(erf_ref) do
+    Testing.Assert_close(SpecialFunctions.Erf(x), ref, 1e-9, "Erf(" .. x .. ")")
+end
+assert(SpecialFunctions.Erf(0) == 0, "Erf(0) == 0")
+
+local erfc_ref = {
+    [0.001] = 0.9988716212090307, [0.1] = 0.8875370839817152, [0.5] = 0.4795001221869535,
+    [1] = 0.15729920705028513, [2] = 0.004677734981047265, [3] = 2.2090496998585438e-05,
+    [4] = 1.541725790028002e-08, [5] = 1.5374597944280351e-12, [6] = 2.1519736712498916e-17,
+    [-0.5] = 1.5204998778130465, [-1] = 1.842700792949715, [-2] = 1.9953222650189528,
+}
+for x, ref in pairs(erfc_ref) do
+    Testing.Assert_close(SpecialFunctions.Erfc(x), ref, math.max(1e-9, math.abs(ref) * 1e-6), "Erfc(" .. x .. ")")
+end
+
+-- The catastrophic-cancellation case this whole design avoids: for large
+-- x, Erf(x) itself rounds to exactly 1.0, so "1 - Erf(x)" would silently
+-- give exactly 0 -- but the true Erfc(x) keeps shrinking meaningfully
+-- for a long time after. Verified directly against Python out to x=20.
+assert(SpecialFunctions.Erf(10) == 1, "Erf(10) rounds to exactly 1.0 in double precision")
+Testing.Assert_close(SpecialFunctions.Erfc(10), 2.088487583762545e-45, 1e-55,
+    "Erfc(10) stays accurate even though 1-Erf(10) would silently give 0")
+Testing.Assert_close(SpecialFunctions.Erfc(15), 7.212994172451206e-100, 1e-110,
+    "Erfc(15) stays accurate")
+Testing.Assert_close(SpecialFunctions.Erfc(20), 5.3958656116079005e-176, 1e-186,
+    "Erfc(20) stays accurate")
+
+Testing.Assert_error(function() return SpecialFunctions.Erf("1") end, "Erf: x")
+Testing.Assert_error(function() return SpecialFunctions.Erfc("1") end, "Erfc: x")
