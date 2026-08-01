@@ -8,30 +8,29 @@
 --
 --   Local_minimum/Local_maximum -- derivative-based: an extremum of a
 --   differentiable f occurs where f'(x) = 0, so finding one is root-
---   finding on f' -- this reuses Derivative_at_point (exact, via Dual
---   numbers) and roots_numeric.Secant directly, with no new derivative
---   machinery of its own. Classifies what it finds by checking the sign
---   of f' just to either side (min: -to-+, max: +to--) rather than
---   assuming a critical point IS the kind of extremum the caller asked
---   for -- an inflection point (f'=0 but no sign change, e.g. x^3 at 0)
---   is reported honestly as "not a minimum"/"not a maximum", never
+--   finding on f' -- built on modules/critical_points.lua (shared with
+--   derivative_analysis.lua), with no new derivative machinery of its
+--   own here. Classifies what it finds by checking the sign of f' just
+--   to either side (min: -to-+, max: +to--) rather than assuming a
+--   critical point IS the kind of extremum the caller asked for -- an
+--   inflection point (f'=0 but no sign change, e.g. x^3 at 0) is
+--   reported honestly as "not a minimum"/"not a maximum", never
 --   silently mislabeled.
 --
 --   Global_minimum/Global_maximum -- on a CLOSED interval, without
---   assuming unimodality: samples f' across the interval, refines every
---   detected sign change into a precise critical point (reusing the SAME
---   Secant-on-f' building block Local_minimum uses), then compares f at
---   every critical point found AND the two endpoints (the extreme value
---   theorem, in code). Honest limitation, stated plainly rather than
---   hidden: a coarse enough sample grid can still miss a very narrow
---   feature entirely between two samples -- opts.samples raises the
---   resolution at the cost of more evaluations, but this is a sampling
---   method, not a certified one (that would need interval arithmetic, a
---   different, future technique).
+--   assuming unimodality: samples f' across the interval (again via
+--   critical_points.lua), refines every detected sign change into a
+--   precise critical point, then compares f at every critical point
+--   found AND the two endpoints (the extreme value theorem, in code).
+--   Honest limitation, stated plainly rather than hidden: a coarse
+--   enough sample grid can still miss a very narrow feature entirely
+--   between two samples -- opts.samples raises the resolution at the
+--   cost of more evaluations, but this is a sampling method, not a
+--   certified one (that would need interval arithmetic, a different,
+--   future technique).
 local Core = require("GABAS-CALC-ONE-VAR.modules.core")
 local CompileExpression = require("GABAS-CALC-ONE-VAR.modules.compile_expression")
-local DifNumeric = require("GABAS-CALC-ONE-VAR.modules.dif_numeric")
-local RootsNumeric = require("GABAS-CALC-ONE-VAR.modules.roots_numeric")
+local CriticalPoints = require("GABAS-CALC-ONE-VAR.modules.critical_points")
 
 local GOLDEN_RATIO_CONJUGATE = (math.sqrt(5) - 1) / 2
 
@@ -127,52 +126,13 @@ local function Golden_section_maximize(f, a, b, opts)
     return x_max, -neg_f_max, status, diag
 end
 
--- Claude: g(x) = f'(x), computed exactly via Derivative_at_point (Dual
--- numbers) rather than a finite difference -- the shared building block
--- both find_critical_point_and_classify and the global-search sampler
--- below reduce to. f must therefore be Dual-compatible (a symbolic-
--- expression string, auto-compiled, or an already-compiled function
--- built only from Compile_expression's own Dual-aware primitives) --
--- same requirement Newton in roots_numeric.lua already has, for the
--- same reason.
-local function derivative_fn(f)
-    return function(x) return (DifNumeric.Derivative_at_point(f, x)) end
-end
-
--- Claude: finds ONE critical point near x0 (root-finding on f' via
--- Secant, seeded with x0 and a nearby second point) and classifies it by
--- checking the sign of f' immediately to either side -- MINIMUM
--- (- to +), MAXIMUM (+ to -), or NEITHER (an inflection point like x^3
--- at 0, where f'=0 but does not change sign). The probe distance for
--- that sign check uses the same cube-root-of-machine-epsilon scaling as
--- Verify_derivative_at_point in dif_numeric.lua -- small enough to probe
--- genuinely local behavior, large enough to stay clear of floating-point
--- noise.
-local function find_critical_point_and_classify(f, x0, opts)
-    local g = derivative_fn(f)
-    local step = opts.initial_step or 0.01 * math.max(1, math.abs(x0))
-    local x_star, _, status, diag = RootsNumeric.Secant(g, x0, x0 + step, opts)
-    if status ~= "SUCCESS" then
-        return x_star, nil, nil, status, diag
-    end
-    local eps = (Core.MACHINE_EPSILON ^ (1 / 3)) * math.max(1, math.abs(x_star))
-    local slope_left = g(x_star - eps)
-    local slope_right = g(x_star + eps)
-    local kind = "NEITHER"
-    if slope_left < 0 and slope_right > 0 then
-        kind = "MINIMUM"
-    elseif slope_left > 0 and slope_right < 0 then
-        kind = "MAXIMUM"
-    end
-    return x_star, f(x_star), kind, "SUCCESS", diag
-end
-
 -- Local_minimum(f, x0, opts) -> x_min, f_min, status, diagnostics
 --
 -- The local minimum of f nearest to the starting guess x0, found by
--- root-finding on f' (see find_critical_point_and_classify above) and
--- verifying the result genuinely IS a minimum, not just any critical
--- point. opts are passed straight through to the underlying Secant call
+-- root-finding on f' (see critical_points.lua's
+-- find_critical_point_and_classify) and verifying the result genuinely
+-- IS a minimum, not just any critical point. opts are passed straight
+-- through to the underlying Secant call
 -- (opts.tol, opts.max_iterations), plus opts.initial_step (default
 -- 0.01*max(1,|x0|)) for Secant's own second starting point.
 --
@@ -186,7 +146,7 @@ local function Local_minimum(f, x0, opts)
     assert(type(opts) == "table", "Local_minimum: opts must be a table.")
     f = CompileExpression.Resolve_function(f, "Local_minimum: f")
     Core.assert_finite_number(x0, "Local_minimum: x0")
-    local x_star, f_star, kind, status, diag = find_critical_point_and_classify(f, x0, opts)
+    local x_star, f_star, kind, status, diag = CriticalPoints.find_critical_point_and_classify(f, x0, opts)
     if status ~= "SUCCESS" then
         return x_star, nil, status, diag
     end
@@ -206,7 +166,7 @@ local function Local_maximum(f, x0, opts)
     assert(type(opts) == "table", "Local_maximum: opts must be a table.")
     f = CompileExpression.Resolve_function(f, "Local_maximum: f")
     Core.assert_finite_number(x0, "Local_maximum: x0")
-    local x_star, f_star, kind, status, diag = find_critical_point_and_classify(f, x0, opts)
+    local x_star, f_star, kind, status, diag = CriticalPoints.find_critical_point_and_classify(f, x0, opts)
     if status ~= "SUCCESS" then
         return x_star, nil, status, diag
     end
@@ -216,42 +176,11 @@ local function Local_maximum(f, x0, opts)
     return x_star, f_star, "SUCCESS", diag
 end
 
--- Claude: samples f' at `samples` evenly spaced points across [a,b] and
--- refines every detected sign change (via the same Secant-on-f' call
--- find_critical_point_and_classify uses) into a precise critical x --
--- deliberately not reusing find_critical_point_and_classify itself,
--- since a global scan doesn't need its classification step (every
--- critical point found here gets compared by f-VALUE against every
--- other candidate below, not by kind). A sample that lands (to floating-
--- point precision) exactly on a critical point is also caught directly,
--- rather than relying on a sign change either side of it.
-local function scan_critical_points(f, a, b, samples)
-    local g = derivative_fn(f)
-    local step = (b - a) / samples
-    local candidates = {}
-    local prev_x, prev_slope = a, g(a)
-    if prev_slope == 0 then candidates[#candidates + 1] = a end
-    for i = 1, samples do
-        local x = a + i * step
-        local slope = g(x)
-        if slope == 0 then
-            candidates[#candidates + 1] = x
-        elseif (prev_slope < 0) ~= (slope < 0) then
-            local root, _, status = RootsNumeric.Secant(g, prev_x, x)
-            if status == "SUCCESS" then
-                candidates[#candidates + 1] = root
-            end
-        end
-        prev_x, prev_slope = x, slope
-    end
-    return candidates
-end
-
 -- Global_minimum(f, a, b, opts) -> x_min, f_min, status, diagnostics
 --
 -- The smallest value of f on the CLOSED interval [a,b] -- the extreme
 -- value theorem, in code: every critical point found by scanning [a,b]
--- (see scan_critical_points above), plus the two endpoints themselves
+-- (see critical_points.lua's scan_critical_points), plus the two endpoints themselves
 -- (a continuous function's global extremum on a closed interval, if not
 -- at a critical point, must be at an endpoint), compared by f-value.
 -- Does NOT assume unimodality, unlike Golden_section_minimize.
@@ -269,7 +198,7 @@ local function Global_minimum(f, a, b, opts)
     local samples = opts.samples or 50
     Core.assert_positive_integer(samples, "Global_minimum: opts.samples")
 
-    local candidates = scan_critical_points(f, a, b, samples)
+    local candidates = CriticalPoints.scan_critical_points(f, a, b, samples)
     candidates[#candidates + 1] = a
     candidates[#candidates + 1] = b
 

@@ -9,19 +9,22 @@
 --   integration_numeric  -- modules/integration_numeric.lua -- numerical integration (adaptive Gauss-Kronrod quadrature)
 --   roots_numeric        -- modules/roots_numeric.lua       -- numerical root-finding (Bisection, Newton, Secant, Brent)
 --   optimization_numeric -- modules/optimization_numeric.lua -- numerical optimization (golden-section search, local/global extrema)
+--   derivative_analysis  -- modules/derivative_analysis.lua  -- critical points, monotonicity, tangent lines, linear approximation
 --
--- Claude: "core", "dual", and "quadrature" are deliberately NOT in this
--- list -- core.lua holds internal validation plumbing, dual.lua and
--- quadrature.lua hold internal numerical building blocks that
--- dif_numeric.lua/integration_numeric.lua depend on directly. None of the
--- three are meant to be part of the public API; if they were merged in
--- here too, this same loop would silently promote them to it.
+-- Claude: "core", "dual", "quadrature", and "critical_points" are
+-- deliberately NOT in this list -- core.lua holds internal validation
+-- plumbing, dual.lua and quadrature.lua hold internal numerical building
+-- blocks, and critical_points.lua holds the find-and-classify logic
+-- shared by optimization_numeric.lua and derivative_analysis.lua. None
+-- of the four are meant to be part of the public API; if they were
+-- merged in here too, this same loop would silently promote them to it.
 local submodules = {
     "compile_expression",
     "dif_numeric",
     "integration_numeric",
     "roots_numeric",
     "optimization_numeric",
+    "derivative_analysis",
 }
 
 local CalcOneVar = {}
