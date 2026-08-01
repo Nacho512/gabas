@@ -94,3 +94,48 @@ Testing.Assert_close(SpecialFunctions.Chebyshev_u(34, -2), 30100488280951055759.
 Testing.Assert_error(function() return SpecialFunctions.Chebyshev_u(-1, 0.5) end, "Chebyshev_u: n must be a nonnegative integer")
 Testing.Assert_error(function() return SpecialFunctions.Chebyshev_u(1.5, 0.5) end, "Chebyshev_u: n must be a nonnegative integer")
 Testing.Assert_error(function() return SpecialFunctions.Chebyshev_u(0, "1") end, "Chebyshev_u: x")
+
+-- ===== Legendre_p =====
+--
+-- Reference values below are mpmath's legendre() at 30-digit working
+-- precision (an independent, trusted reference), not values this
+-- implementation itself produced.
+
+local legendre_p_ref = {
+    {0, 0.5, 1.0}, {1, 0.5, 0.5}, {2, 0.5, -0.125}, {3, 0.5, -0.4375},
+    {5, 0.3, 0.34538625}, {10, 0.9, -0.26314561785585953},
+    {0, 2, 1.0}, {1, 2, 2.0}, {3, 2, 17.0}, {5, 1.5, 33.08203125},
+    {10, 5, 1600472677.0}, {20, 1.2, 38022.330892378732},
+}
+for _, case in ipairs(legendre_p_ref) do
+    local n, x, ref = case[1], case[2], case[3]
+    local tol = math.max(math.abs(ref) * 1e-9, 1e-9)
+    Testing.Assert_close(SpecialFunctions.Legendre_p(n, x), ref, tol, "Legendre_p(" .. n .. "," .. x .. ")")
+end
+
+-- Closed forms at the domain endpoints: P_n(1) = 1, P_n(-1) = (-1)^n.
+for n = 0, 10 do
+    assert(SpecialFunctions.Legendre_p(n, 1) == 1, "Legendre_p(" .. n .. ",1) == 1")
+    local expected = (n % 2 == 0) and 1 or -1
+    assert(SpecialFunctions.Legendre_p(n, -1) == expected, "Legendre_p(" .. n .. ",-1) == (-1)^" .. n)
+end
+
+-- P_n(-x) = (-1)^n * P_n(x).
+for _, n in ipairs({0, 1, 2, 3, 7}) do
+    local x = 1.7
+    local expected = ((n % 2 == 0) and 1 or -1) * SpecialFunctions.Legendre_p(n, x)
+    Testing.Assert_close(SpecialFunctions.Legendre_p(n, -x), expected, 1e-9,
+        "Legendre_p(" .. n .. ",-x) = (-1)^" .. n .. "*Legendre_p(" .. n .. ",x)")
+end
+
+-- Same integer-only-argument case that exposed the Chebyshev_t/
+-- Chebyshev_u overflow bug -- Legendre_p's own division-based recurrence
+-- self-promotes to float regardless (see its header), so this is a
+-- spot check confirming that holds, not a regression for a bug that
+-- was actually caught here.
+Testing.Assert_close(SpecialFunctions.Legendre_p(34, -2), 2797276292689877223.3, 2797276292689877223.3 * 1e-9,
+    "Legendre_p(34,-2) stays accurate with integer-only arguments")
+
+Testing.Assert_error(function() return SpecialFunctions.Legendre_p(-1, 0.5) end, "Legendre_p: n must be a nonnegative integer")
+Testing.Assert_error(function() return SpecialFunctions.Legendre_p(1.5, 0.5) end, "Legendre_p: n must be a nonnegative integer")
+Testing.Assert_error(function() return SpecialFunctions.Legendre_p(0, "1") end, "Legendre_p: x")
