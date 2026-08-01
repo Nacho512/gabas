@@ -569,7 +569,26 @@ local function Compile_Expression(expr)
     return f, normalized
 end
 
+-- Claude: accepts EITHER an already-compiled Lua function (e.g. the
+-- first return value of Compile_expression itself, or any function a
+-- caller built some other way) OR a symbolic-expression string like
+-- "sin(x**2)", compiling the latter automatically. This is what lets
+-- dif_numeric.lua/integration_numeric.lua's public functions
+-- (Derivative_at_point, Integral_definite, ...) accept the friendly
+-- syntax directly, e.g. Derivative_at_point("sin(x**2)", 0.5), without
+-- forcing every caller to remember to call Compile_expression first --
+-- while still accepting a plain function unchanged, for a caller who
+-- already has one.
+local function Resolve_function(f, label)
+    if type(f) == "string" then
+        return (Compile_Expression(f))
+    end
+    Core.assert_callable(f, label)
+    return f
+end
+
 return {
     Compile_expression = Compile_Expression,
     Root_any = Root_any,
+    Resolve_function = Resolve_function,
 }

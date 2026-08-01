@@ -11,6 +11,7 @@ local tests = {
     "test_integral_infinite",
     "test_integral_principal_value",
     "test_integral_tanh_sinh",
+    "test_resolve_function",
 }
 
 for _, name in ipairs(tests) do

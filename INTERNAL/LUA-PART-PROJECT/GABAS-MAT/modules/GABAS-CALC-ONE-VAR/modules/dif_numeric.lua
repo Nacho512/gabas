@@ -14,6 +14,7 @@
 local Complex = require("GABAS-LINAL.modules.complex")
 local Dual = require("GABAS-CALC-ONE-VAR.modules.dual")
 local Core = require("GABAS-CALC-ONE-VAR.modules.core")
+local CompileExpression = require("GABAS-CALC-ONE-VAR.modules.compile_expression")
 
 -- Claude: NaN-safe on both plain reals and Complex values -- used to
 -- reject a derivative that silently went bad (e.g. from a domain issue an
@@ -32,9 +33,10 @@ end
 -- with no step-size parameter and no finite-difference truncation error,
 -- unlike ordinary numerical differentiation.
 --
--- f is normally the function returned by Compile_expression, though any
--- Lua function of one argument works: the derivative comes from calling
--- that SAME f with a Dual seed instead of a plain number. Every
+-- f may be a symbolic-expression string ("sin(x**2)"), compiled
+-- automatically (see compile_expression.lua's Resolve_function), or
+-- already a function -- either way, the derivative comes from calling
+-- that function with a Dual seed instead of a plain number. Every
 -- arithmetic operation and every Calc_one_var_* primitive f's body might
 -- use already knows how to propagate a Dual value -- exactly the same way
 -- they already know how to propagate a Complex one for "j" -- so no
@@ -51,7 +53,7 @@ end
 -- computed along the way at no extra cost, useful e.g. to sanity-check
 -- against a known value.
 local function Derivative_at_point(f, x0)
-    Core.assert_callable(f, "Derivative_at_point: f")
+    f = CompileExpression.Resolve_function(f, "Derivative_at_point: f")
     Core.assert_finite_number(x0, "Derivative_at_point: x0")
     local seed = Dual.Dual(x0, 1)
     local ok, result = pcall(f, seed)
@@ -83,7 +85,7 @@ end
 --
 -- Returns agrees (boolean), finite_difference (the independent estimate).
 local function Verify_derivative_at_point(f, x0, derivative, tolerance)
-    Core.assert_callable(f, "Verify_derivative_at_point: f")
+    f = CompileExpression.Resolve_function(f, "Verify_derivative_at_point: f")
     Core.assert_finite_number(x0, "Verify_derivative_at_point: x0")
     Core.assert_finite_scalar_or_dual(derivative, "Verify_derivative_at_point: derivative")
     tolerance = tolerance or 1e-4

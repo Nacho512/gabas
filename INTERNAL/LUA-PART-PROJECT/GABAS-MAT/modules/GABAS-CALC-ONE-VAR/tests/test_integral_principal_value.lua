@@ -36,4 +36,4 @@ Testing.Assert_error(function() return PV(function(x) return 1 / x end, -1, 1, 1
     "c must lie strictly between a and b")
 Testing.Assert_error(function() return PV(function(x) return 1 / x end, -1, 1, -2) end,
     "c must lie strictly between a and b")
-Testing.Assert_error(function() return PV("not a function", -1, 1, 0) end, "Integral_principal_value: f")
+Testing.Assert_error(function() return PV(42, -1, 1, 0) end, "Integral_principal_value: f")

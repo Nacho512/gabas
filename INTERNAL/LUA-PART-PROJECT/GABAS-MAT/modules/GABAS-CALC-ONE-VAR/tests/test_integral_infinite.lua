@@ -44,4 +44,4 @@ assert(s1 ~= "SUCCESS", "the divergent integral of 1/x on [1,inf) must not repor
 
 -- Input validation.
 Testing.Assert_error(function() return Inf(math.sin, math.huge, math.huge) end, "must be less than")
-Testing.Assert_error(function() return Inf("not a function", 0, math.huge) end, "Integral_infinite: f")
+Testing.Assert_error(function() return Inf(42, 0, math.huge) end, "Integral_infinite: f")
