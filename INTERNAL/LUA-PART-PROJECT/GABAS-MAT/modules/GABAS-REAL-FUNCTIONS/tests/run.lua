@@ -1,21 +1,10 @@
 local source = debug.getinfo(1, "S").source:sub(2)
 local root = source:match("^(.*)/tests/run%.lua$")
-local modules_root = root:match("^(.*)/GABAS%-CALC%-ONE%-VAR$")
+local modules_root = root:match("^(.*)/GABAS%-REAL%-FUNCTIONS$")
 package.path = modules_root .. "/?.lua;" .. modules_root .. "/?/init.lua;" .. package.path
 
 local tests = {
-    "test_compile_expression",
-    "test_calc_one_var",
-    "test_quadrature",
-    "test_integral",
-    "test_inverse_trig",
-    "test_integral_infinite",
-    "test_integral_principal_value",
-    "test_integral_tanh_sinh",
-    "test_integral_oscillatory",
-    "test_resolve_function",
-    "test_roots_numeric",
-    "test_optimization_numeric",
+    "test_real_functions",
 }
 
 for _, name in ipairs(tests) do
