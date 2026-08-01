@@ -4,7 +4,7 @@
 -- submodule's public functions get flattened into one table, so calling
 -- code is unaffected by how the implementation is split across files.
 --
---   special_functions -- modules/special_functions.lua -- Gamma, Log_gamma, Beta, Log_beta, Gamma_p, Gamma_q, Erf, Erfc
+--   special_functions -- modules/special_functions.lua -- Gamma, Log_gamma, Beta, Log_beta, Gamma_p, Gamma_q, Erf, Erfc, Bessel_j
 --
 -- Claude: "core" is deliberately NOT in this list -- core.lua holds
 -- internal validation plumbing that special_functions.lua depends on
