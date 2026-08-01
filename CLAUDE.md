@@ -8,11 +8,15 @@ work from an earlier conversation that no longer has any context loaded.
 ## Read this first
 
 **`PROJECT_CONVENTIONS.md`** (repo root) is the authoritative source for how
-the Lua side of this project is built: naming convention, module/aggregator
-layout, the `core.lua` input-validation contract, dependency-direction rules,
-numerical rigor practices, verification/testing discipline, and the
-architectural decisions already made. Read it before writing or changing any
-Lua code. It explicitly does NOT cover the LaTeX side of the project.
+this whole project is built, in three parts: general conventions (apply
+everywhere), Lua-specific conventions (naming, module/aggregator layout, the
+`core.lua` input-validation contract, dependency-direction rules, numerical
+rigor practices, verification/testing discipline, architectural decisions
+already made), and LaTeX-specific conventions (engine independence,
+modularity, argument validation, error handling, and -- notably -- a naming
+case convention that is the *opposite* of the Lua side's). Read the relevant
+part before writing or changing code on either side; the two sides'
+conventions do not carry over to each other.
 
 ## Orienting yourself
 

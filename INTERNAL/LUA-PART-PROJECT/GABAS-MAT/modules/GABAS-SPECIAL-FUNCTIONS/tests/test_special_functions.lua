@@ -260,3 +260,62 @@ Testing.Assert_error(function() return SpecialFunctions.Bessel_y(0, 13) end, "Be
 Testing.Assert_error(function() return SpecialFunctions.Bessel_y(-1, 1) end, "Bessel_y: n must be a nonnegative integer")
 Testing.Assert_error(function() return SpecialFunctions.Bessel_y(1.5, 1) end, "Bessel_y: n must be a nonnegative integer")
 Testing.Assert_error(function() return SpecialFunctions.Bessel_y(0, "1") end, "Bessel_y: x")
+
+-- ===== Modified_bessel_i =====
+--
+-- Reference values below are mpmath's besseli() at 30-digit working
+-- precision (an independent, trusted reference), not values this
+-- implementation itself produced.
+
+local modified_bessel_i_ref = {
+    {0, 0.5, 1.0634833707413235}, {0, 1, 1.2660658777520083}, {1, 1, 0.56515910399248503},
+    {5, 1, 0.00027146315595697188}, {0, 5, 27.239871823604447}, {2, 5, 17.505614966624236},
+    {0, 10, 2815.7166284662545}, {5, 10, 777.18828640325996}, {10, 10, 21.891706163723371},
+    {0, 20, 43558282.559553533}, {5, 20, 23018392.213413671}, {0, 50, 2.9325537838493363e+20},
+    {10, 50, 1.0715971594776370e+20}, {0, 100, 1.0737517071310738e+42}, {50, 100, 4.8219580855940807e+36},
+    {0, 300, 4.4758473679350521e+128}, {0, 500, 2.5048094765700781e+215}, {0, 700, 1.5295933476718737e+302},
+    {50, 0.5, 2.5969152606026520e-95}, {50, 5, 2.9314696468108502e-45},
+}
+for _, case in ipairs(modified_bessel_i_ref) do
+    local n, x, ref = case[1], case[2], case[3]
+    Testing.Assert_close(SpecialFunctions.Modified_bessel_i(n, x), ref, math.abs(ref) * 1e-10, "Modified_bessel_i(" .. n .. "," .. x .. ")")
+end
+
+-- I_n(0): 1 for n=0, 0 for n>0.
+assert(SpecialFunctions.Modified_bessel_i(0, 0) == 1, "Modified_bessel_i(0,0) == 1")
+assert(SpecialFunctions.Modified_bessel_i(5, 0) == 0, "Modified_bessel_i(n>0,0) == 0")
+
+-- I_n(-x) = (-1)^n * I_n(x).
+local modified_bessel_i_negative_ref = {
+    {0, -1, 1.2660658777520083}, {1, -1, -0.56515910399248503},
+    {5, -10, -777.18828640325996}, {4, -10, 1226.4905377594916},
+}
+for _, case in ipairs(modified_bessel_i_negative_ref) do
+    local n, x, ref = case[1], case[2], case[3]
+    Testing.Assert_close(SpecialFunctions.Modified_bessel_i(n, x), ref, math.abs(ref) * 1e-10, "Modified_bessel_i(" .. n .. "," .. x .. ")")
+end
+
+-- Honest overflow: I_0(x) itself exceeds a double's range well before
+-- x=800, and this must return +math.huge -- the same overflow behavior
+-- Gamma has -- not a wrong finite number.
+assert(SpecialFunctions.Modified_bessel_i(0, 800) == math.huge, "Modified_bessel_i(0,800) overflows honestly to +math.huge")
+
+-- Regression: the naive first-term formula, half_x^n / n! with each
+-- part formed as a separate number, PREMATURELY overflows for large n
+-- at only moderately large x -- half_x^n alone can exceed a double's
+-- range even though the true ratio is an ordinary representable value.
+-- Modified_bessel_i(150, 300) returned +math.huge under that naive
+-- version even though the true I_150(300) is a perfectly ordinary
+-- ~4.5e112 -- caught directly against mpmath before this fix (computing
+-- that first term in log-space via Log_gamma instead).
+Testing.Assert_close(SpecialFunctions.Modified_bessel_i(150, 300), 4.5381763361335002e+112,
+    4.5381763361335002e+112 * 1e-9, "Modified_bessel_i(150,300) does not prematurely overflow")
+-- Regression: n! computed via a Lua-integer accumulator wraps silently
+-- past n=~20 (64-bit integer overflow) instead of promoting to float --
+-- Modified_bessel_i(50, 100) came back negative under that version.
+Testing.Assert_close(SpecialFunctions.Modified_bessel_i(50, 100), 4.8219580855940807e+36,
+    4.8219580855940807e+36 * 1e-9, "Modified_bessel_i(50,100) does not go negative from integer-factorial overflow")
+
+Testing.Assert_error(function() return SpecialFunctions.Modified_bessel_i(-1, 1) end, "Modified_bessel_i: n must be a nonnegative integer")
+Testing.Assert_error(function() return SpecialFunctions.Modified_bessel_i(1.5, 1) end, "Modified_bessel_i: n must be a nonnegative integer")
+Testing.Assert_error(function() return SpecialFunctions.Modified_bessel_i(0, "1") end, "Modified_bessel_i: x")

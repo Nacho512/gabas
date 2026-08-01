@@ -1,20 +1,79 @@
 # GABAS project conventions
 
-This file is the shared, tool-agnostic source of truth for how this codebase is
-built. It applies regardless of which AI coding tool (Claude, Codex, or any
+This file is the shared, tool-agnostic source of truth for how this codebase
+is built. It applies regardless of which AI coding tool (Claude, Codex, or any
 other) is working on it. Tool-specific files (`CLAUDE.md`, `AGENTS.md`, ...)
 should point here rather than duplicate this content.
 
-**Scope: this document covers `INTERNAL/LUA-PART-PROJECT/` only** -- the Lua
-math library (`GABAS_MAT` and its `GABAS-*` domain projects). It does NOT
-apply to `INTERNAL/LATEX-PART-PROJECT/` (the LaTeX side of `gabas`, e.g.
-`gabas.sty`). The two are different languages with different conventions;
-nothing here about naming, module structure, or Lua-specific numerical
-discipline should be assumed to carry over to the LaTeX package. If/when the
-LaTeX side accumulates its own conventions, they belong in a separate file
-scoped to `INTERNAL/LATEX-PART-PROJECT/`, not here.
+**Scope: this document covers the whole `gabas` project** -- both
+`INTERNAL/LUA-PART-PROJECT/` (the Lua math library, `GABAS_MAT` and its
+`GABAS-*` domain projects) and `INTERNAL/LATEX-PART-PROJECT/` (the LaTeX
+package, e.g. `gabas.sty`). It's organized in three parts:
 
-## Naming convention ("Nacho_case")
+1. **General conventions** -- apply to the project as a whole, regardless of
+   language or which side you're working on.
+2. **Lua-specific conventions** -- apply only to `INTERNAL/LUA-PART-PROJECT/`.
+3. **LaTeX-specific conventions** -- apply only to
+   `INTERNAL/LATEX-PART-PROJECT/`.
+
+The two sides are different languages with very different conventions --
+notably, they disagree on naming case by design (see each section). Nothing
+in the Lua-specific or LaTeX-specific parts should be assumed to carry over to
+the other side; only Part 1 does.
+
+---
+
+## Part 1: General conventions
+
+These apply everywhere in the project, on both the Lua and LaTeX sides.
+
+### Comments
+
+- Default to **no comments**. Only add one when the WHY is genuinely
+  non-obvious: a hidden constraint, a subtle invariant, a numerical hazard, a
+  deliberate scope decision. Never explain WHAT the code does when the code
+  (well-named identifiers) already says so.
+- An explanatory comment authored by an AI coding assistant is prefixed with
+  that assistant's own name, e.g. `-- Claude:` for Claude, `Codex:` for
+  Codex -- so the authorship of any given piece of commentary stays
+  traceable.
+
+### Verification discipline
+
+- Never trust a claim about code behavior without actually running it, on
+  whichever real toolchain applies to that side of the project (the
+  `lua5.4` interpreter for the Lua side; actual engine compilation for the
+  LaTeX side). Confident-sounding prose is not a substitute for output from
+  the real tool.
+- Say so plainly when something is a genuine limitation rather than smoothing
+  it over.
+
+### Git / workflow discipline
+
+- **Always ask for explicit confirmation before merging any PR to `main`.**
+  This is a standing, unwavering policy -- never assumed, even after having
+  been granted once before in an earlier session.
+- Commit only a coherent, tested, working piece of work.
+
+### Scope discipline
+
+- Build the smallest verified piece first, then extend incrementally. Don't
+  build a large speculative surface area in one shot.
+- Don't add speculative generality or features beyond what's actually asked.
+- When evaluating a large candidate feature list (e.g. an LLM-generated
+  "complete" architecture survey), treat it as a wishlist/vision document,
+  not a build plan. Extract only what's a natural, small, incremental
+  extension of what already exists. Anything that is itself a
+  library-sized undertaking is its own future project, never a subsection
+  folded into an existing one.
+
+---
+
+## Part 2: Lua-specific conventions
+
+**Scope: `INTERNAL/LUA-PART-PROJECT/` only.**
+
+### Naming convention ("Nacho_case")
 
 Every public function is `Capitalized_Snake_Case`: an initial capital, then
 lowercase words joined by underscores at natural word boundaries.
@@ -24,7 +83,10 @@ Examples: `Derivative_at_point`, `Bisection`, `Compile_expression`,
 
 Private/internal helpers (never exported) are plain `lower_snake_case`.
 
-## Project and module layout
+(Note: this is the opposite convention from the LaTeX side, which prefers
+lowercase names throughout -- see Part 3. Do not mix the two.)
+
+### Project and module layout
 
 Each top-level math domain is its own sibling project directory under
 `INTERNAL/LUA-PART-PROJECT/GABAS-MAT/modules/`, e.g. `GABAS-LINAL`,
@@ -53,7 +115,7 @@ no two submodules export the same name. `core.lua` (and any other pure-plumbing
 submodule, e.g. `dual.lua`, `quadrature.lua`, `tanh_sinh.lua`) is deliberately
 **excluded** from that list -- it is internal infrastructure, not public API.
 
-## The `core.lua` contract
+### The `core.lua` contract
 
 Every project's `modules/core.lua`:
 
@@ -72,7 +134,7 @@ Contract" in the formal sense: explicit preconditions that halt on violation
 rather than letting bad input propagate into a confusing failure somewhere
 downstream.
 
-## Dependency direction (no circular `require`s)
+### Dependency direction (no circular `require`s)
 
 - A cross-project `require` reaches directly into the specific submodule
   needed (e.g. `require("GABAS-LINAL.modules.complex")`), never through
@@ -94,14 +156,15 @@ downstream.
      "depending on" another because one of its many submodules needs it is a
      modeling mistake, not a real constraint.
 
-## Numerical rigor
+### Numerical rigor
 
 - Never improvise a numerical algorithm's exact structure or constants when a
   validated, well-known reference exists (e.g. the QK21 Gauss-Kronrod
   node/weight tables, copied from QUADPACK, not re-derived; Brent-Dekker's
   root finder, transcribed variable-for-variable from the classical
-  reference algorithm). Transcription errors here are easy to make and easy
-  to miss.
+  reference algorithm; the Lanczos coefficients for Gamma; Miller's
+  backward-recurrence algorithm for Bessel_j). Transcription errors here are
+  easy to make and easy to miss.
 - Simple, well-known "textbook" algorithms (factorial, GCD, Fibonacci, base
   conversion, bisection) don't need an external reference -- implement
   directly and verify thoroughly with tests against independently-known
@@ -115,19 +178,33 @@ downstream.
   `0/0` in the limit `theta -> 0`). Use a Taylor-series branch below a
   numerically-verified threshold rather than trusting the closed form near
   the dangerous point.
+- Compute in LOG-SPACE FIRST whenever an intermediate value could
+  over/underflow even though the final result is representable (e.g.
+  `Log_gamma` before `Gamma`, `Log_beta` before `Beta`, the first term of
+  `Modified_bessel_i`'s series via `Log_gamma(n+1)` instead of forming `n!`
+  and `half_x^n` as separate numbers). This exact class of bug has been
+  caught empirically, repeatedly, across unrelated functions -- always
+  worth checking for on any new function whose inputs can get large.
 - Never let a computation silently produce a wrong answer. Lua 5.4 integers
   wrap around silently on overflow -- guard against this explicitly (e.g.
-  `Factorial`, `Binomial_coefficient`, `Fibonacci`) before it happens, not
-  after.
+  `Factorial`, `Binomial_coefficient`, `Fibonacci`, and any accumulator like
+  a running factorial inside a series) before it happens, not after. When in
+  doubt, seed an accumulator as a float literal (`1.0`, not `1`) so Lua
+  arithmetic stays in float space throughout.
 - A numerical algorithm must never report a false "SUCCESS"/converged
   status. When a genuine limit is hit (max iterations, non-convergence, a
   mathematically nonexistent result), report an honest failure status
   instead of a plausible-looking wrong number.
+- When a numerical method has a verified-but-limited domain of accuracy (not
+  a theoretical convergence limit but an empirically-determined precision
+  boundary), enforce that domain explicitly via input validation rather than
+  silently extrapolating past it -- unless/until a more general method
+  (e.g. a different algorithm with no such boundary) replaces it.
 
-## Verification discipline
+### Verification discipline (Lua-specific mechanics)
 
-- Never trust a claim about code behavior without actually running it
-  against the real `lua5.4` interpreter.
+Builds on the general verification principle in Part 1:
+
 - Every new function gets tests in its project's own `tests/` directory, run
   through that project's `tests/run.lua`.
 - Tests should include: independently-known reference values (computed
@@ -137,47 +214,18 @@ downstream.
   where practical, differential testing (cross-checking one implementation
   against an independent one -- e.g. `Brent` vs. `Bisection` on the same
   bracket).
+- A bug caught this way gets a dedicated regression test using the exact
+  case that exposed it, not just a fix.
 - Run the full test suite of every project touched, not just the one with
   new code, before considering work done.
-
-## Comments
-
-- Default to **no comments**. Only add one when the WHY is genuinely
-  non-obvious: a hidden constraint, a subtle invariant, a numerical hazard, a
-  deliberate scope decision. Never explain WHAT the code does when the code
-  (well-named identifiers) already says so.
-- An explanatory comment authored by an AI coding assistant is prefixed with
-  that assistant's own name, e.g. `-- Claude:` for Claude, `Codex:` for
-  Codex -- so the authorship of any given piece of commentary stays
-  traceable.
-
-## Git / workflow discipline
-
-- **Always ask for explicit confirmation before merging any PR to `main`.**
-  This is a standing, unwavering policy -- never assumed, even after having
-  been granted once before in an earlier session.
-- Commit only a coherent, tested, working piece of work.
-- Adding a new submodule or function always comes with its test file added to
-  the relevant `tests/run.lua` list in the same change.
-
-## Scope discipline
-
-- Build the smallest verified piece first, then extend incrementally. Don't
-  build a large speculative surface area in one shot.
-- Don't add speculative generality or features beyond what's actually asked.
+- Adding a new submodule or function always comes with its test file added
+  to the relevant `tests/run.lua` list in the same change.
 - Full symbolic manipulation / a CAS (parser -> mutable AST -> algebraic
   simplification -> symbolic differentiation/integration) is a deliberately
   **deferred**, later phase of this overall project -- mature the numeric
   layer first.
-- When evaluating a large candidate feature list (e.g. an LLM-generated
-  "complete" architecture survey), treat it as a wishlist/vision document,
-  not a build plan. Extract only what's a natural, small, incremental
-  extension of what already exists. Anything that is itself a
-  library-sized undertaking (a full CAS, ODE solvers, FFT/transforms,
-  probability distributions, plotting, certified interval arithmetic, ...)
-  is its own future project, never a subsection folded into an existing one.
 
-## Architectural decisions already made
+### Architectural decisions already made
 
 - `GABAS_CALC_ONE_VAR.lua` is real-variable calculus only. Differentiating
   with respect to a *complex* variable itself (Jacobian/Wirtinger modes) is
@@ -191,3 +239,38 @@ downstream.
 - Symbolic/CAS-style manipulation is its own future, later phase -- not to be
   threaded into the numeric modules prematurely, no matter how tempting a
   specific case looks.
+
+---
+
+## Part 3: LaTeX-specific conventions
+
+**Scope: `INTERNAL/LATEX-PART-PROJECT/` only.**
+
+1. Write the LaTeX layer engine-independently whenever practical and
+   possible; where engine-specific behavior is necessary, design primarily
+   for LuaLaTeX.
+2. Keep major capabilities modular. OCR, drawing recognition, Python
+   integrations, Lua mathematics, and similar systems should live in
+   dedicated modules loaded by `gabas.sty`.
+3. Avoid forcing users to switch engines for different features.
+   Engine-specific implementations should be selected internally through
+   explicit capability detection.
+4. Validate every public argument before filesystem access, PDF inspection,
+   arithmetic, or rendering. Values must match their documented types
+   exactly; invalid integers must never be silently rounded or truncated.
+5. Distinguish recoverable problems from nonrecoverable ones. Recoverable
+   conditions receive warnings and controlled fallbacks; invalid states that
+   make execution unsafe or ambiguous receive fatal GABAS-specific errors.
+6. Preserve diagnostics, compilation counters, manifests, routing
+   information, and draft-mode recommendations. These mechanisms should be
+   improved progressively rather than removed.
+7. Keep obsolete or incorrect code as comments instead of deleting it,
+   clearly marking replacement code and the reason for the correction.
+8. Prefer lowercase names for new files, modules, internal identifiers, and
+   generated artifacts whenever compatibility permits.
+9. Avoid using names for functions, variables, etc. which contain uppercase
+   letters as much as possible.
+
+(Note: rules 8-9 are the opposite convention from the Lua side, which
+requires `Capitalized_Snake_Case` for every public function -- see Part 2.
+Do not mix the two.)
