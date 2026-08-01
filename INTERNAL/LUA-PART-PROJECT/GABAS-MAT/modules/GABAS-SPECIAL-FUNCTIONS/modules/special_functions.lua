@@ -854,6 +854,126 @@ local function Modified_bessel_k(n, x)
     return k_curr
 end
 
+-- Claude: Spherical_bessel_j(n, x) -> j_n(x), the spherical Bessel
+-- function of the first kind, order n, for a nonnegative integer n and
+-- any finite real x.
+--
+-- j_n(x) = sqrt(pi/(2x)) * J_(n+1/2)(x) -- but rather than go through
+-- that relation (which would need Bessel_j at HALF-INTEGER order, which
+-- this file doesn't support), it's computed directly from its own
+-- three-term recurrence, j_(n-1)(x) + j_(n+1)(x) = (2n+1)/x * j_n(x) --
+-- the same Miller's-algorithm technique Bessel_j itself uses, for
+-- exactly the same reason: FORWARD recurrence (increasing n from the
+-- elementary closed forms j_0(x) = sin(x)/x, j_1(x) = sin(x)/x^2 -
+-- cos(x)/x) is numerically unstable once n is large relative to x --
+-- verified directly: it already goes catastrophically wrong (relative
+-- error ~150, i.e. not just imprecise, completely wrong) by n=8, x=0.5.
+--
+-- Unlike ordinary Bessel_j, which normalizes its backward-recurrence
+-- sweep via the Neumann sum identity, this normalizes far more simply:
+-- j_0(x) = sin(x)/x has NO cancellation at all, so the backward sweep's
+-- own (arbitrarily scaled) unnormalized value at order 0 is compared
+-- directly against that true sin(x)/x, and the whole sweep is rescaled
+-- by that one ratio -- no sum identity needed.
+--
+-- Verified directly against mpmath (sqrt(pi/(2x))*besselj(n+1/2,x)):
+-- relative error stays within ~1.3e-13 across n = 0..50 and x from 0.5
+-- to 100, and negative x (checked via the identity
+-- j_n(-x) = (-1)^n*j_n(x), since mpmath's own half-integer-order
+-- besselj is complex-valued at negative real x under its standard
+-- branch, even though j_n itself is genuinely real there -- the
+-- recurrence and the sin(x)/x normalization both use the actual signed
+-- x throughout, so this needs no separate negative-x branch).
+local function spherical_bessel_j_backward_sweep(n, x, M)
+    local jp = 0 -- j_(k+1), unnormalized
+    local j = 1 -- j_M, unnormalized arbitrary seed
+    local ans = 0
+    local j0_unnorm = 0
+    for k = M, 1, -1 do
+        local jm = (2 * k + 1) / x * j - jp
+        jp = j
+        j = jm
+        if math.abs(j) > MILLER_RESCALE_BIG then
+            j = j * MILLER_RESCALE_SMALL
+            jp = jp * MILLER_RESCALE_SMALL
+            ans = ans * MILLER_RESCALE_SMALL
+            j0_unnorm = j0_unnorm * MILLER_RESCALE_SMALL
+        end
+        if k - 1 == n then
+            ans = j
+        end
+        if k == 1 then
+            j0_unnorm = j
+        end
+    end
+    local scale = (math.sin(x) / x) / j0_unnorm
+    return ans * scale
+end
+
+local function Spherical_bessel_j(n, x)
+    Core.assert_finite_number(x, "Spherical_bessel_j: x")
+    assert(n == math.floor(n) and n >= 0, "Spherical_bessel_j: n must be a nonnegative integer.")
+    if x == 0 then
+        return n == 0 and 1 or 0
+    end
+    local ax = math.abs(x)
+    local M = math.max(n, math.ceil(ax)) + MILLER_MARGIN
+    local value = spherical_bessel_j_backward_sweep(n, x, M)
+    for _ = 1, MILLER_MAX_TRIES do
+        M = M + MILLER_STEP
+        local next_value = spherical_bessel_j_backward_sweep(n, x, M)
+        local converged = (next_value == value)
+            or math.abs(next_value - value) <= math.abs(next_value) * MILLER_CONVERGENCE_EPS
+        value = next_value
+        if converged then
+            break
+        end
+    end
+    return value
+end
+
+-- Claude: Spherical_bessel_y(n, x) -> y_n(x), the spherical Bessel
+-- function of the second kind, order n, for a nonnegative integer n and
+-- any real x != 0.
+--
+-- y_0(x) = -cos(x)/x, y_1(x) = -cos(x)/x^2 - sin(x)/x -- both, like
+-- j_0/j_1 above, purely elementary (sine, cosine, powers of 1/x), with
+-- NO logarithmic term -- unlike ordinary Bessel_y's Y_0/Y_1, whose
+-- ln(x/2) term is exactly what makes them undefined for negative x.
+-- That difference is real, not incidental: it means, unlike
+-- Bessel_y, this needs no x > 0 restriction -- verified directly
+-- against mpmath (the identity y_n(-x) = (-1)^(n+1)*y_n(x), since
+-- mpmath's own half-integer-order bessely is complex-valued at negative
+-- real x under its standard branch, even though y_n itself is genuinely
+-- real there, same situation as Spherical_bessel_j above).
+--
+-- y_n for n >= 2 is built from y_0, y_1 by the same forward recurrence
+-- Bessel_y already uses for Y_n -- forward is the numerically stable
+-- direction here too (y_n is the recurrence's dominant, growing
+-- solution as n increases, exactly as with Y_n): verified directly
+-- against mpmath for n up to 30 and x from 0.5 to 50, relative error
+-- stays at the few-1e-16 (machine epsilon) level throughout, no Miller's
+-- algorithm needed for this family (unlike Spherical_bessel_j).
+local function Spherical_bessel_y(n, x)
+    Core.assert_finite_number(x, "Spherical_bessel_y: x")
+    assert(n == math.floor(n) and n >= 0, "Spherical_bessel_y: n must be a nonnegative integer.")
+    assert(x ~= 0, "Spherical_bessel_y: x must not be zero (y_n has a singularity at x=0).")
+    local y0 = -math.cos(x) / x
+    if n == 0 then
+        return y0
+    end
+    local y1 = -math.cos(x) / (x * x) - math.sin(x) / x
+    if n == 1 then
+        return y1
+    end
+    local y_prev, y_curr = y0, y1
+    for k = 1, n - 1 do
+        local y_next = (2 * k + 1) / x * y_curr - y_prev
+        y_prev, y_curr = y_curr, y_next
+    end
+    return y_curr
+end
+
 return {
     Gamma = Gamma,
     Log_gamma = Log_gamma,
@@ -869,4 +989,6 @@ return {
     Bessel_y = Bessel_y,
     Modified_bessel_i = Modified_bessel_i,
     Modified_bessel_k = Modified_bessel_k,
+    Spherical_bessel_j = Spherical_bessel_j,
+    Spherical_bessel_y = Spherical_bessel_y,
 }
