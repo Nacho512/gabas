@@ -152,3 +152,90 @@ do
     local pi_value = s * rf + (n * s ^ 3 / 3) * rj
     Testing.Assert_close(pi_value, 1.436810311480912274254415e-5, 1e-9, "T20 smoke test (Pi(n;phi|m) via RF+RJ)")
 end
+
+-- ===== Elliptic_f / Elliptic_e_incomplete =====
+--
+-- Reference values below are mpmath's ellipf()/ellipe() at 30-digit
+-- working precision (an independent, trusted reference), not values
+-- this implementation itself produced.
+
+local elliptic_f_ref = {
+    {0.7, 0.3, 0.71651771598539313}, {1.2, 0.8, 1.4884956889493300}, {0.5, 0.5, 0.51046713562800476},
+    {1.0, -2.0, 0.82956088578834132}, {1.4, 0.99, 2.3875754616023318}, {-0.9, 0.4, -0.94699792240401120},
+    {0, 0.5, 0.0}, {math.pi / 2, 0.6, 1.9495677498060259},
+}
+for _, case in ipairs(elliptic_f_ref) do
+    local phi, m, ref = case[1], case[2], case[3]
+    local tol = math.max(math.abs(ref) * 1e-9, 1e-9)
+    Testing.Assert_close(SpecialFunctions.Elliptic_f(phi, m), ref, tol, "Elliptic_f(" .. phi .. "," .. m .. ")")
+end
+
+local elliptic_e_incomplete_ref = {
+    {0.7, 0.3, 0.68414060780670029}, {1.2, 0.8, 0.99887463983842525}, {0.5, 0.5, 0.48991095979251716},
+    {1.0, -2.0, 1.2303948166988862}, {1.4, 0.99, 0.99264733285385111}, {-0.9, 0.4, -0.85692235700701177},
+    {0, 0.5, 0.0}, {math.pi / 2, 0.6, 1.2984280350469132},
+}
+for _, case in ipairs(elliptic_e_incomplete_ref) do
+    local phi, m, ref = case[1], case[2], case[3]
+    local tol = math.max(math.abs(ref) * 1e-9, 1e-9)
+    Testing.Assert_close(SpecialFunctions.Elliptic_e_incomplete(phi, m), ref, tol, "Elliptic_e_incomplete(" .. phi .. "," .. m .. ")")
+end
+
+-- Elliptic_f(-phi,m) = -Elliptic_f(phi,m); same for Elliptic_e_incomplete.
+for _, case in ipairs({{0.8, 0.3}, {1.1, -1.5}}) do
+    local phi, m = case[1], case[2]
+    Testing.Assert_close(SpecialFunctions.Elliptic_f(-phi, m), -SpecialFunctions.Elliptic_f(phi, m), 1e-12,
+        "Elliptic_f(-phi,m) = -Elliptic_f(phi,m)")
+    Testing.Assert_close(SpecialFunctions.Elliptic_e_incomplete(-phi, m), -SpecialFunctions.Elliptic_e_incomplete(phi, m), 1e-12,
+        "Elliptic_e_incomplete(-phi,m) = -Elliptic_e_incomplete(phi,m)")
+end
+
+Testing.Assert_error(function() return SpecialFunctions.Elliptic_f(2, 0.5) end, "Elliptic_f: phi must be in")
+Testing.Assert_error(function() return SpecialFunctions.Elliptic_f(0.5, 1) end, "Elliptic_f: m must be < 1")
+Testing.Assert_error(function() return SpecialFunctions.Elliptic_f(0.5, 1.5) end, "Elliptic_f: m must be < 1")
+Testing.Assert_error(function() return SpecialFunctions.Elliptic_f("1", 0.5) end, "Elliptic_f: phi")
+Testing.Assert_error(function() return SpecialFunctions.Elliptic_e_incomplete(2, 0.5) end, "Elliptic_e_incomplete: phi must be in")
+Testing.Assert_error(function() return SpecialFunctions.Elliptic_e_incomplete(0.5, 1) end, "Elliptic_e_incomplete: m must be < 1")
+
+-- ===== Elliptic_k / Elliptic_e =====
+--
+-- Reference values below are mpmath's ellipk()/ellipe() at 30-digit
+-- working precision.
+
+local elliptic_k_ref = {
+    {0.3, 1.7138894481787911}, {0.8, 2.2572053268208538}, {-2.0, 1.1714200841467699},
+    {0.99, 3.6956373629898742}, {-100, 0.36821924860914103}, {0, 1.5707963267948966},
+}
+for _, case in ipairs(elliptic_k_ref) do
+    local m, ref = case[1], case[2]
+    Testing.Assert_close(SpecialFunctions.Elliptic_k(m), ref, math.abs(ref) * 1e-9, "Elliptic_k(" .. m .. ")")
+end
+
+local elliptic_e_ref = {
+    {0.3, 1.4453630644126653}, {0.8, 1.1784899243278385}, {-2.0, 2.1844381427462012},
+    {0.99, 1.0159935450252239}, {-100, 10.209260919814572}, {0, 1.5707963267948966},
+}
+for _, case in ipairs(elliptic_e_ref) do
+    local m, ref = case[1], case[2]
+    Testing.Assert_close(SpecialFunctions.Elliptic_e(m), ref, math.abs(ref) * 1e-9, "Elliptic_e(" .. m .. ")")
+end
+
+-- Elliptic_k(0) = Elliptic_e(0) = pi/2 (the m=0 elementary closed form).
+Testing.Assert_close(SpecialFunctions.Elliptic_k(0), math.pi / 2, 1e-12, "Elliptic_k(0) = pi/2")
+Testing.Assert_close(SpecialFunctions.Elliptic_e(0), math.pi / 2, 1e-12, "Elliptic_e(0) = pi/2")
+
+-- Consistency: Elliptic_f/Elliptic_e_incomplete at phi=pi/2 must equal
+-- the complete Elliptic_k/Elliptic_e (the reference document's own
+-- definition, eq. 1.2 -- the complete integral IS the incomplete one
+-- evaluated at the endpoint).
+for _, m in ipairs({0.3, -2, 0.99, -100}) do
+    Testing.Assert_close(SpecialFunctions.Elliptic_f(math.pi / 2, m), SpecialFunctions.Elliptic_k(m), 1e-9,
+        "Elliptic_f(pi/2,m) == Elliptic_k(m) at m=" .. m)
+    Testing.Assert_close(SpecialFunctions.Elliptic_e_incomplete(math.pi / 2, m), SpecialFunctions.Elliptic_e(m), 1e-9,
+        "Elliptic_e_incomplete(pi/2,m) == Elliptic_e(m) at m=" .. m)
+end
+
+Testing.Assert_error(function() return SpecialFunctions.Elliptic_k(1) end, "Elliptic_k: m must be < 1")
+Testing.Assert_error(function() return SpecialFunctions.Elliptic_k(1.5) end, "Elliptic_k: m must be < 1")
+Testing.Assert_error(function() return SpecialFunctions.Elliptic_k("1") end, "Elliptic_k: m")
+Testing.Assert_error(function() return SpecialFunctions.Elliptic_e(1) end, "Elliptic_e: m must be < 1")
