@@ -39,25 +39,57 @@ local function to_complex(x)
     return Complex(x, 0)
 end
 
+-- Claude: Lua only ever dispatches a binary operator to ONE operand's
+-- metamethod (the left operand's, if it has one, else the right's) --
+-- so "Complex_value * Dual_value" always lands in Complex_mt.__mul, never
+-- Dual's, even though Dual (GABAS-CALC-ONE-VAR's forward-mode automatic
+-- differentiation number) is the one that actually knows how to combine
+-- the two. Without this, that combination would fail outright inside
+-- to_complex, which has no idea what a Dual is -- correctly so: Complex
+-- must stay self-contained and never require a module built on top of it.
+--
+-- The fix is to detect a genuinely FOREIGN operand (a table that isn't
+-- Complex but defines this same metamethod) and hand the whole operation
+-- to IT instead -- Complex never needs to know Dual (or anything else)
+-- exists, it just declines to handle a type it doesn't recognize when
+-- something else clearly can. Dual's own arithmetic then treats the
+-- Complex operand as a plain constant (zero derivative), which is exactly
+-- right.
+local function foreign_metamethod(x, op)
+    if type(x) == "table" and not is_complex(x) then
+        local mt = getmetatable(x)
+        if mt then return mt[op] end
+    end
+    return nil
+end
+
 -- Operator metamethods (__add.._tostring) and instance methods
 -- (conj/abs/arg) for Complex_mt -- these are what let real arithmetic gain
 -- Complex support "for free" throughout the rest of the library.
 function Complex_mt.__add(a, b)
+    local foreign = foreign_metamethod(a, "__add") or foreign_metamethod(b, "__add")
+    if foreign then return foreign(a, b) end
     a, b = to_complex(a), to_complex(b)
     return Complex(a.re + b.re, a.im + b.im)
 end
 
 function Complex_mt.__sub(a, b)
+    local foreign = foreign_metamethod(a, "__sub") or foreign_metamethod(b, "__sub")
+    if foreign then return foreign(a, b) end
     a, b = to_complex(a), to_complex(b)
     return Complex(a.re - b.re, a.im - b.im)
 end
 
 function Complex_mt.__mul(a, b)
+    local foreign = foreign_metamethod(a, "__mul") or foreign_metamethod(b, "__mul")
+    if foreign then return foreign(a, b) end
     a, b = to_complex(a), to_complex(b)
     return Complex(a.re * b.re - a.im * b.im, a.re * b.im + a.im * b.re)
 end
 
 function Complex_mt.__div(a, b)
+    local foreign = foreign_metamethod(a, "__div") or foreign_metamethod(b, "__div")
+    if foreign then return foreign(a, b) end
     a, b = to_complex(a), to_complex(b)
     assert(b.re ~= 0 or b.im ~= 0, "Complex: division by zero.")
     if math.abs(b.re) >= math.abs(b.im) then
@@ -84,6 +116,8 @@ end
 -- non-integer case (De Moivre's formula is exactly what this reduces to
 -- when w is real), so there is no longer a separate branch for it.
 function Complex_mt.__pow(a, b)
+    local foreign = foreign_metamethod(a, "__pow") or foreign_metamethod(b, "__pow")
+    if foreign then return foreign(a, b) end
     a = to_complex(a)
     if type(b) == "number" and b == math.floor(b) then
         local n = math.abs(b)
