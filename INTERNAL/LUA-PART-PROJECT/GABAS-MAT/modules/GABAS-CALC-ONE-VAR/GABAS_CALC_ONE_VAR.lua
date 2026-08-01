@@ -238,6 +238,20 @@ local COMPILE_ENV = {
 -- close-paren of func(...) to be found and removed, not just a prefix
 -- rewrite. The bracket scanner above is most of what that needs; it's a
 -- real next increment, not folded into this one.
+--
+-- Claude: returns TWO values -- f, and the normalized Lua source string
+-- f was actually compiled from (e.g. "Calc_one_var_e^x+7" for "e**x + 7",
+-- vs "Calc_one_var_e^(x+7)" for "e**{x + 7}"). Operator precedence here is
+-- fully deterministic (exponentiation binds tighter than +/-, exactly like
+-- standard math notation), so there is no real parsing ambiguity to warn
+-- about -- but a user translating from handwritten superscripts, where
+-- there's no visual boundary on where an exponent ends, can still type
+-- something other than what they meant. The second return value is the
+-- honest fix for that: it lets a caller SEE exactly how grouping resolved
+-- (present or absent parentheses) before trusting any numeric output,
+-- rather than a heuristic warning that would have to fire on every
+-- ordinary polynomial (x**2 + 1 is not a mistake). A caller that only
+-- wants f can just ignore the second value, same as always.
 local function Compile_Expression(expr)
     assert(type(expr) == "string" and expr:match("%S"),
         "Compile_Expression: expr must be a non-blank string.")
@@ -258,7 +272,7 @@ local function Compile_Expression(expr)
     local ok, f = pcall(chunk)
     assert(ok, "Compile_Expression: error while building the function from \"" ..
         expr .. "\" -- " .. tostring(f))
-    return f
+    return f, normalized
 end
 
 return {
