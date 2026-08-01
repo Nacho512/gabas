@@ -134,6 +134,68 @@ function Complex_mt.arg(a)
     return math.atan(a.im, a.re)
 end
 
+-- Claude: private, real-only sinh/cosh -- not exported. Needed just as
+-- building blocks for Sin/Cos/Sinh/Cosh below (their closed forms mix the
+-- real trig and real hyperbolic functions of z's components). Built from
+-- the exponential definition rather than relying on math.sinh/cosh, same
+-- reasoning as Calc_one_var_sinh/cosh in GABAS-CALC-ONE-VAR: those were
+-- made optional in Lua 5.3+ and this module cannot depend on that module
+-- (or vice versa) without pointing the dependency backwards.
+local function real_sinh(t) return (math.exp(t) - math.exp(-t)) / 2 end
+local function real_cosh(t) return (math.exp(t) + math.exp(-t)) / 2 end
+
+-- Exp/Ln/Sqrt/Sin/Cos/Tan/Sinh/Cosh/Tanh: the elementary functions,
+-- generalized to a Complex argument (a plain real number is accepted too,
+-- coerced via to_complex, so these work standalone as well as from a
+-- dispatcher that only calls them once a value is already known Complex).
+-- Ln and Sqrt use the SAME principal branch as __pow above (Log(z) =
+-- ln|z| + i*arg(z), with arg via atan2-style math.atan(im, re)) -- Sqrt is
+-- literally just the z^0.5 case of __pow, reused rather than re-derived.
+local function Exp(z)
+    z = to_complex(z)
+    local mag = math.exp(z.re)
+    return Complex(mag * math.cos(z.im), mag * math.sin(z.im))
+end
+
+local function Ln(z)
+    z = to_complex(z)
+    local r = z:abs()
+    assert(r > 0, "Complex: ln(0) is undefined.")
+    return Complex(math.log(r), z:arg())
+end
+
+local function Sqrt(z)
+    return to_complex(z) ^ 0.5
+end
+
+local function Sin(z)
+    z = to_complex(z)
+    return Complex(math.sin(z.re) * real_cosh(z.im), math.cos(z.re) * real_sinh(z.im))
+end
+
+local function Cos(z)
+    z = to_complex(z)
+    return Complex(math.cos(z.re) * real_cosh(z.im), -math.sin(z.re) * real_sinh(z.im))
+end
+
+local function Tan(z)
+    return Sin(z) / Cos(z)
+end
+
+local function Sinh(z)
+    z = to_complex(z)
+    return Complex(real_sinh(z.re) * math.cos(z.im), real_cosh(z.re) * math.sin(z.im))
+end
+
+local function Cosh(z)
+    z = to_complex(z)
+    return Complex(real_cosh(z.re) * math.cos(z.im), real_sinh(z.re) * math.sin(z.im))
+end
+
+local function Tanh(z)
+    return Sinh(z) / Cosh(z)
+end
+
 -- Elementwise conjugate. Accepts either a vector (flat table) or a
 -- matrix (table of row-tables); plain-number entries pass through
 -- unchanged.
@@ -159,4 +221,13 @@ return {
     Complex = Complex,
     Is_complex = is_complex,
     Conjugate = Conjugate,
+    Exp = Exp,
+    Ln = Ln,
+    Sqrt = Sqrt,
+    Sin = Sin,
+    Cos = Cos,
+    Tan = Tan,
+    Sinh = Sinh,
+    Cosh = Cosh,
+    Tanh = Tanh,
 }

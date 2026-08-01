@@ -83,9 +83,11 @@ end
 -- e(...) -> Euler's number raised to the argument (e.g. e(x+1) means
 -- e^(x+1)), a prefix substitution exactly like log_N above -- Lua's own
 -- parser finds the matching close-paren for free once this is rewritten
--- as an ordinary function call.
+-- as an ordinary function call. Routed through the Calc_one_var_exp
+-- dispatcher (not straight to math.exp) so e(j) and friends work the same
+-- as exp(j).
 local function translate_e_call(expr)
-    return (expr:gsub("%f[%a]e%(", "math.exp("))
+    return (expr:gsub("%f[%a]e%(", "Calc_one_var_exp("))
 end
 
 -- Claude: bare "e" as a standalone constant (so "e**{x+1}" -- after
@@ -124,11 +126,20 @@ end
 -- "sin" only matches as a genuinely standalone identifier -- never as a
 -- substring of "asin" or "sinh". This is what lets every entry below be
 -- applied in any order without one clobbering another.
+--
+-- sin/cos/tan/sinh/cosh/tanh/exp/ln/sqrt/abs all route to a dispatcher
+-- (Calc_one_var_*, defined below) rather than straight to math.* -- each
+-- one accepts either a plain real number (unchanged behavior, still
+-- returns a plain number) or a Complex value (once "j" is in play),
+-- dispatching to the matching Complex.* formula in that case. asin/acos/
+-- atan are NOT extended yet -- complex-argument inverse trig needs real
+-- care around branch cuts, a separate, not-yet-built increment, same
+-- status as inv().
 local FUNCTION_ALIASES = {
-    sin = "math.sin", cos = "math.cos", tan = "math.tan",
+    sin = "Calc_one_var_sin", cos = "Calc_one_var_cos", tan = "Calc_one_var_tan",
     asin = "math.asin", acos = "math.acos", atan = "math.atan",
     sinh = "Calc_one_var_sinh", cosh = "Calc_one_var_cosh", tanh = "Calc_one_var_tanh",
-    abs = "math.abs", sqrt = "math.sqrt", exp = "math.exp", ln = "math.log",
+    abs = "Calc_one_var_abs", sqrt = "Calc_one_var_sqrt", exp = "Calc_one_var_exp", ln = "Calc_one_var_ln",
 }
 
 local function translate_function_names(expr)
@@ -143,9 +154,11 @@ end
 -- not part of Lua's own numeric-literal grammar (no exponent marker, no
 -- hex-float suffix uses it), so a plain frontier-pattern gsub is safe.
 -- Complex arithmetic (+, -, *, /, ^) works through Complex's operator
--- metamethods once this constant is in play; math.* functions (sin, exp,
--- ...) do NOT accept a Complex argument -- that is a separate, not-yet-
--- built extension, same status as inv().
+-- metamethods once this constant is in play; sin/cos/tan/sinh/cosh/tanh/
+-- exp/ln/sqrt/abs all accept a Complex argument too (see the
+-- dispatch_real_or_complex wrappers below) -- asin/acos/atan do not yet
+-- (complex-argument inverse trig is a separate, not-yet-built extension,
+-- same status as inv()).
 local function translate_imaginary_unit(expr)
     return (expr:gsub("%f[%a]j%f[%A]", "Calc_one_var_j"))
 end
@@ -155,11 +168,72 @@ end
 -- of Lua 5.3 and aren't guaranteed to exist in every build, including
 -- whatever Lua LuaTeX embeds, which is the actual target for this module.
 -- Defining these ourselves means this never depends on a compile flag we
--- don't control.
-local function Calc_one_var_sinh(x) return (math.exp(x) - math.exp(-x)) / 2 end
-local function Calc_one_var_cosh(x) return (math.exp(x) + math.exp(-x)) / 2 end
-local function Calc_one_var_tanh(x) return Calc_one_var_sinh(x) / Calc_one_var_cosh(x) end
-local function Calc_one_var_log_base(base, x) return math.log(x, base) end
+-- don't control. Private (real-only): the public sinh/cosh/tanh below are
+-- the dispatchers that call these for a real argument.
+local function real_sinh(x) return (math.exp(x) - math.exp(-x)) / 2 end
+local function real_cosh(x) return (math.exp(x) + math.exp(-x)) / 2 end
+local function real_tanh(x) return real_sinh(x) / real_cosh(x) end
+
+-- Claude: real_fn is used for a plain number (unchanged behavior, still
+-- returns a plain number); complex_fn (from GABAS-LINAL's Complex module)
+-- is used once an argument is actually Complex, i.e. some upstream "j"
+-- was involved. This is the shared shape for every dispatcher below.
+local function dispatch_real_or_complex(real_fn, complex_fn)
+    return function(z)
+        if Complex.Is_complex(z) then
+            return complex_fn(z)
+        end
+        return real_fn(z)
+    end
+end
+
+local Calc_one_var_sin = dispatch_real_or_complex(math.sin, Complex.Sin)
+local Calc_one_var_cos = dispatch_real_or_complex(math.cos, Complex.Cos)
+local Calc_one_var_tan = dispatch_real_or_complex(math.tan, Complex.Tan)
+local Calc_one_var_sinh = dispatch_real_or_complex(real_sinh, Complex.Sinh)
+local Calc_one_var_cosh = dispatch_real_or_complex(real_cosh, Complex.Cosh)
+local Calc_one_var_tanh = dispatch_real_or_complex(real_tanh, Complex.Tanh)
+
+-- Claude: exp/ln/sqrt need one more branch than a plain real/Complex
+-- dispatch: a NEGATIVE real argument to ln or sqrt has no real result
+-- (today that would silently come back as nan from math.log/math.sqrt),
+-- but it has a perfectly well-defined Complex one (sqrt(-4) = 2i,
+-- ln(-1) = i*pi) now that Complex.Sqrt/Ln exist -- so a negative real is
+-- auto-promoted to Complex rather than left to fail silently.
+local function Calc_one_var_exp(z)
+    if Complex.Is_complex(z) then return Complex.Exp(z) end
+    return math.exp(z)
+end
+
+local function Calc_one_var_ln(z)
+    if Complex.Is_complex(z) then return Complex.Ln(z) end
+    if z < 0 then return Complex.Ln(Complex.Complex(z, 0)) end
+    return math.log(z)
+end
+
+local function Calc_one_var_sqrt(z)
+    if Complex.Is_complex(z) then return Complex.Sqrt(z) end
+    if z < 0 then return Complex.Sqrt(Complex.Complex(z, 0)) end
+    return math.sqrt(z)
+end
+
+local function Calc_one_var_abs(z)
+    if Complex.Is_complex(z) then return z:abs() end
+    return math.abs(z)
+end
+
+-- Claude: same negative-real-promotes-to-Complex policy as ln above,
+-- generalized to log_base(x) = Ln(x) / Ln(base) (base is always a real,
+-- positive literal from "log_N(...)" -- see translate_log_base).
+local function Calc_one_var_log_base(base, x)
+    if Complex.Is_complex(x) then
+        return Complex.Ln(x) / math.log(base)
+    end
+    if x < 0 then
+        return Complex.Ln(Complex.Complex(x, 0)) / math.log(base)
+    end
+    return math.log(x, base)
+end
 
 -- The N-th (possibly non-integer) root of radicand, real-valued whenever
 -- one exists: directly as radicand^(1/index) when radicand >= 0, or, for a
@@ -195,9 +269,16 @@ local Calc_one_var_j = Complex.Complex(0, 1)
 local COMPILE_ENV = {
     math = math,
     Calc_one_var_log_base = Calc_one_var_log_base,
+    Calc_one_var_sin = Calc_one_var_sin,
+    Calc_one_var_cos = Calc_one_var_cos,
+    Calc_one_var_tan = Calc_one_var_tan,
     Calc_one_var_sinh = Calc_one_var_sinh,
     Calc_one_var_cosh = Calc_one_var_cosh,
     Calc_one_var_tanh = Calc_one_var_tanh,
+    Calc_one_var_exp = Calc_one_var_exp,
+    Calc_one_var_ln = Calc_one_var_ln,
+    Calc_one_var_sqrt = Calc_one_var_sqrt,
+    Calc_one_var_abs = Calc_one_var_abs,
     Calc_one_var_e = Calc_one_var_e,
     Calc_one_var_j = Calc_one_var_j,
     Root_any = Root_any,
@@ -213,7 +294,7 @@ local COMPILE_ENV = {
 -- own syntax doesn't already provide.
 --
 -- Euler's number `e` is supported two ways, both meaning e^(...): as a
--- function call, e(x+1), rewritten to math.exp(x+1); and as a bare
+-- function call, e(x+1), rewritten to Calc_one_var_exp(x+1); and as a bare
 -- constant combined with **, e**{x+1} (normalized to e^(x+1) by the
 -- bracket and ** steps), rewritten to a plain Calc_one_var_e^(x+1). The
 -- bare-constant form is scanned by hand rather than gsub, specifically to
@@ -223,7 +304,13 @@ local COMPILE_ENV = {
 -- "j" is the imaginary unit (sqrt(-1), engineering convention): a bare
 -- constant like "e", but safe to gsub directly since "j" never appears in
 -- Lua's own numeric-literal grammar. Complex arithmetic (+ - * / ^) works
--- once "j" is in play; math.* functions do not accept a Complex argument.
+-- once "j" is in play, and so do sin/cos/tan/sinh/cosh/tanh/exp/ln/sqrt/
+-- abs -- each dispatches to a Complex-aware formula whenever its argument
+-- actually is Complex, and otherwise behaves exactly as before (still
+-- returns a plain number). ln and sqrt additionally auto-promote a
+-- NEGATIVE real argument to Complex (sqrt(-4) = 2i, ln(-1) = i*pi)
+-- instead of silently returning nan. asin/acos/atan do not accept a
+-- Complex argument yet.
 --
 -- "root_N(...)" is the N-th (possibly decimal) root of (...), e.g.
 -- root_3(x) or root_6.13(x) -- the same prefix-rewrite trick as log_N,
