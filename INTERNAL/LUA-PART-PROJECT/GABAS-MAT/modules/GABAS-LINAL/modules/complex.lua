@@ -135,7 +135,18 @@ function Complex_mt.__pow(a, b)
     end
     b = to_complex(b)
     local r = a:abs()
-    assert(r > 0, "Complex: 0 cannot be raised to a non-positive-integer power.")
+    if r == 0 then
+        -- Claude: 0^v is 0 by the standard real-analysis convention
+        -- whenever the exponent's real part is positive (continuous with
+        -- lim r->0+ of r^v) -- e.g. Sqrt(0) = 0^0.5 must be 0, not an
+        -- error (this surfaced via Asin(1), whose formula computes
+        -- Sqrt(1-1^2)). Only a nonpositive real part is genuinely
+        -- undefined (0^0 itself is handled separately, by the exact
+        -- integer branch above, before this general branch is ever
+        -- reached).
+        assert(b.re > 0, "Complex: 0 cannot be raised to a power with a nonpositive real part.")
+        return Complex(0, 0)
+    end
     local ln_r = math.log(r)
     local theta = a:arg()
     local re_exp = b.re * ln_r - b.im * theta
@@ -230,6 +241,34 @@ local function Tanh(z)
     return Sinh(z) / Cosh(z)
 end
 
+-- Claude: Asin/Acos/Atan via the standard logarithmic definitions --
+-- asin(z) = -i*ln(iz + sqrt(1-z^2)), acos(z) = -i*ln(z + i*sqrt(1-z^2)),
+-- atan(z) = (i/2)*ln((1-iz)/(1+iz)) -- reusing Ln and Sqrt (and their
+-- already-principal-branch behavior) rather than re-deriving branch
+-- handling from scratch. Singular where the formula's own denominator or
+-- logarithm argument vanishes (Atan at z = +-i in particular, matching
+-- the well-known branch points of arctangent); not specially guarded
+-- here, same as Ln(0) or Sqrt's own domain limits -- the underlying
+-- arithmetic already fails loudly (division by zero, ln of zero) rather
+-- than silently.
+local IMAGINARY_UNIT = Complex(0, 1)
+local ONE = Complex(1, 0)
+
+local function Asin(z)
+    z = to_complex(z)
+    return -IMAGINARY_UNIT * Ln(IMAGINARY_UNIT * z + Sqrt(ONE - z * z))
+end
+
+local function Acos(z)
+    z = to_complex(z)
+    return -IMAGINARY_UNIT * Ln(z + IMAGINARY_UNIT * Sqrt(ONE - z * z))
+end
+
+local function Atan(z)
+    z = to_complex(z)
+    return (IMAGINARY_UNIT / 2) * Ln((ONE - IMAGINARY_UNIT * z) / (ONE + IMAGINARY_UNIT * z))
+end
+
 -- Elementwise conjugate. Accepts either a vector (flat table) or a
 -- matrix (table of row-tables); plain-number entries pass through
 -- unchanged.
@@ -264,4 +303,7 @@ return {
     Sinh = Sinh,
     Cosh = Cosh,
     Tanh = Tanh,
+    Asin = Asin,
+    Acos = Acos,
+    Atan = Atan,
 }

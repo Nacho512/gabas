@@ -7,6 +7,7 @@ local tests = {
     "test_calc_one_var",
     "test_quadrature",
     "test_integral",
+    "test_inverse_trig",
 }
 
 for _, name in ipairs(tests) do
