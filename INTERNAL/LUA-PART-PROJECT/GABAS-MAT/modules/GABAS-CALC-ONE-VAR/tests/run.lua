@@ -15,6 +15,7 @@ local tests = {
     "test_integral_oscillatory",
     "test_resolve_function",
     "test_roots_numeric",
+    "test_optimization_numeric",
 }
 
 for _, name in ipairs(tests) do
