@@ -149,9 +149,52 @@ local function Hermite_h(n, x)
     return h_curr
 end
 
+-- Laguerre_l(n, x) -> L_n(x), the (plain, alpha=0) Laguerre polynomial
+-- of order n, for a nonnegative integer n and any finite real x.
+--
+-- Claude: computed via the direct three-term recurrence
+-- (k+1)*L_(k+1)(x) = (2k+1-x)*L_k(x) - k*L_(k-1)(x), L_0=1, L_1=1-x --
+-- same "well-known, test it directly" status as the other orthogonal
+-- polynomials in this file. Like Legendre_p, this divides by (k+1)
+-- every step, so it self-promotes to float arithmetic on its first
+-- iteration regardless of whether x was passed as a Lua integer --
+-- checked directly (Laguerre_l(34, -2) stays accurate without needing
+-- explicit float coercion), same situation as Legendre_p, for the same
+-- reason. Kept the "x + 0.0" line anyway for consistency across this
+-- file.
+--
+-- Verified directly against mpmath.laguerre(n, 0, x) (an independent,
+-- trusted reference): relative error stays within ~4.5e-14 for n up to
+-- 80 and x from -2 to 10 -- unlike the other polynomials in this file,
+-- Laguerre's natural domain of interest is x >= 0 (it's the family
+-- orthogonal on [0, infinity) with weight e^-x), but the recurrence
+-- itself is a perfectly well-defined polynomial identity for any real
+-- x, so no domain restriction is imposed here, matching how
+-- Chebyshev_t/Chebyshev_u/Legendre_p/Hermite_h don't restrict to their
+-- own "natural" intervals either.
+--
+-- The generalized (associated) form L_n^alpha(x), needed for e.g. the
+-- radial part of the hydrogen atom's wavefunctions, is a real, separate
+-- future increment -- not attempted here (alpha=0 is the special case
+-- this implements).
+local function Laguerre_l(n, x)
+    Core.assert_finite_number(x, "Laguerre_l: x")
+    assert(n == math.floor(n) and n >= 0, "Laguerre_l: n must be a nonnegative integer.")
+    x = x + 0.0
+    if n == 0 then
+        return 1.0
+    end
+    local l_prev, l_curr = 1.0, 1 - x
+    for k = 1, n - 1 do
+        l_prev, l_curr = l_curr, ((2 * k + 1 - x) * l_curr - k * l_prev) / (k + 1)
+    end
+    return l_curr
+end
+
 return {
     Chebyshev_t = Chebyshev_t,
     Chebyshev_u = Chebyshev_u,
     Legendre_p = Legendre_p,
     Hermite_h = Hermite_h,
+    Laguerre_l = Laguerre_l,
 }

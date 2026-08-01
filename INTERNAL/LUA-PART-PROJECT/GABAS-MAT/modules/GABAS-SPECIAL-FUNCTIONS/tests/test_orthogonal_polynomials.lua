@@ -181,3 +181,40 @@ Testing.Assert_close(SpecialFunctions.Hermite_h(34, -2), 4.5791990566263883069e+
 Testing.Assert_error(function() return SpecialFunctions.Hermite_h(-1, 0.5) end, "Hermite_h: n must be a nonnegative integer")
 Testing.Assert_error(function() return SpecialFunctions.Hermite_h(1.5, 0.5) end, "Hermite_h: n must be a nonnegative integer")
 Testing.Assert_error(function() return SpecialFunctions.Hermite_h(0, "1") end, "Hermite_h: x")
+
+-- ===== Laguerre_l =====
+--
+-- Reference values below are mpmath's laguerre(n, 0, x) (alpha=0, the
+-- plain Laguerre polynomial) at 30-digit working precision (an
+-- independent, trusted reference), not values this implementation
+-- itself produced.
+
+local laguerre_l_ref = {
+    {0, 0.5, 1.0}, {1, 0.5, 0.5}, {2, 0.5, 0.125}, {3, 0.5, -0.14583333333333333},
+    {5, 0.3, -0.093332749999999973}, {10, 0.9, 0.28993145554178798},
+    {0, 2, 1.0}, {2, 2, -1.0}, {3, 2, -0.33333333333333333}, {5, 1.5, 0.11640625},
+    {6, 5, -2.0902777777777778}, {8, 10, -16.301587301587302},
+}
+for _, case in ipairs(laguerre_l_ref) do
+    local n, x, ref = case[1], case[2], case[3]
+    local tol = math.max(math.abs(ref) * 1e-9, 1e-9)
+    Testing.Assert_close(SpecialFunctions.Laguerre_l(n, x), ref, tol, "Laguerre_l(" .. n .. "," .. x .. ")")
+end
+
+-- Closed form: L_n(0) = 1 for every n (the alpha=0 case's defining
+-- normalization).
+for n = 0, 15 do
+    assert(SpecialFunctions.Laguerre_l(n, 0) == 1, "Laguerre_l(" .. n .. ",0) == 1")
+end
+
+-- Same integer-only-argument spot check as Legendre_p/Hermite_h above
+-- (Laguerre_l's own division-based recurrence self-promotes to float
+-- regardless, same reasoning as Legendre_p's header).
+Testing.Assert_close(SpecialFunctions.Laguerre_l(34, -2), 617650.79170559951445, 617650.79170559951445 * 1e-9,
+    "Laguerre_l(34,-2) stays accurate with integer-only arguments")
+Testing.Assert_close(SpecialFunctions.Laguerre_l(5, -3), 124.9, 1e-6,
+    "Laguerre_l(5,-3) stays accurate with integer-only arguments")
+
+Testing.Assert_error(function() return SpecialFunctions.Laguerre_l(-1, 0.5) end, "Laguerre_l: n must be a nonnegative integer")
+Testing.Assert_error(function() return SpecialFunctions.Laguerre_l(1.5, 0.5) end, "Laguerre_l: n must be a nonnegative integer")
+Testing.Assert_error(function() return SpecialFunctions.Laguerre_l(0, "1") end, "Laguerre_l: x")
