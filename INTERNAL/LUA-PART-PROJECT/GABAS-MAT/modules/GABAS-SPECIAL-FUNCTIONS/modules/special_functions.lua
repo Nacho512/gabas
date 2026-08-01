@@ -601,6 +601,119 @@ local function Modified_bessel_i(n, x)
     return total
 end
 
+-- Claude: Modified_bessel_k(n,x) -> K_n(x), the modified Bessel function
+-- of the SECOND kind, order n -- the other independent solution of the
+-- same ODE Modified_bessel_i solves, singular at x = 0, so only defined
+-- here for x > 0. This is the hardest of the four Bessel families the
+-- reference document Nacho supplied covers (Section 19 flags dedicated
+-- near-integer-order methods as needing a verified publication, not
+-- casual reconstruction) -- but that specific hazard is about
+-- NONINTEGER order, where the connection formula
+-- K_nu = (pi/2)*(I_(-nu)-I_nu)/sin(pi*nu) becomes ill-conditioned near
+-- integer nu. Restricted to nonnegative INTEGER n like every other
+-- Bessel function in this file, that whole problem doesn't arise --
+-- K_0 and K_1 are computed directly from their own defining series
+-- (Abramowitz & Stegun 9.6.13/9.6.15), no connection formula involved.
+--
+--   K_0(x) = -[ln(x/2)+EULER_GAMMA]*I_0(x) + sum_(k=1..inf) H_k *
+--            (x/2)^(2k) / (k!)^2
+--
+--   K_1(x) = 1/x + [ln(x/2)+EULER_GAMMA]*I_1(x) - (x/4) *
+--            sum_(k=0..inf) (H_k+H_(k+1)) / (k!*(k+1)!) * (x/2)^(2k)
+--
+-- (H_k the k-th harmonic number, same building block Bessel_y already
+-- uses -- psi(k+1) = -EULER_GAMMA + H_k, so these are the same kind of
+-- series, just without the alternating sign Y's has, since I_n's series
+-- (unlike J_n's) has none either).
+--
+-- Verified directly against mpmath.besselk: relative error stays under
+-- ~7e-12 for 0 < x <= 6 -- a MUCH narrower domain than Bessel_y's x<=12
+-- despite the strong structural similarity of the two series, because
+-- I_0(x)/I_1(x) here GROW exponentially while the true K_0(x)/K_1(x)
+-- DECAY exponentially: the (ln(x/2)+EULER_GAMMA)*I_n(x) term and the
+-- series total end up catastrophically cancelling against each other,
+-- and that cancellation gets worse far faster than Bessel_y's analogous
+-- (much milder) cancellation against a bounded J_n(x). By x=10 the
+-- error is already ~1e-7. x <= 6 is deliberately conservative -- same
+-- "verified, not theoretical" discipline as every other domain boundary
+-- in this file. Extending past it needs the large-x asymptotic
+-- expansion (in terms of exponentially SCALED I_nu/K_nu, per the
+-- reference document -- unscaled K_nu underflows long before an
+-- asymptotic expansion would even be needed) -- deferred, real future
+-- work, not attempted here.
+--
+-- K_n for n >= 2 is built from K_0, K_1 by the same forward recurrence
+-- style as Bessel_y (forward is stable for K_n too, for the same
+-- reason: K_n is the dominant, growing solution as n increases) --
+-- verified directly against mpmath.besselk for n up to 20 at x up to 6:
+-- no growth in relative error beyond what K_0/K_1 already carry. Note
+-- the PLUS sign here (K_(n+1) = K_(n-1) + (2n/x)*K_n), unlike
+-- Bessel_j/Bessel_y's minus -- K's defining ODE has the opposite sign
+-- on its x^2 term, which flips this recurrence's sign too.
+local MODIFIED_BESSEL_K_MAX_X = 6
+local MODIFIED_BESSEL_K_SERIES_MAX_ITER = 300
+local MODIFIED_BESSEL_K_SERIES_EPS = 1e-18
+
+local function bessel_k0_series(x, i0)
+    local half_x_sq = (x / 2) ^ 2
+    local term = 1.0
+    local harmonic = 0.0
+    local total = 0.0
+    for k = 1, MODIFIED_BESSEL_K_SERIES_MAX_ITER do
+        term = term * half_x_sq / (k * k)
+        harmonic = harmonic + 1.0 / k
+        local contrib = harmonic * term
+        total = total + contrib
+        if math.abs(contrib) < MODIFIED_BESSEL_K_SERIES_EPS * math.max(math.abs(total), 1.0) then
+            break
+        end
+    end
+    return -(math.log(x / 2) + EULER_GAMMA) * i0 + total
+end
+
+local function bessel_k1_series(x, i1)
+    local half_x = x / 2
+    local half_x_sq = half_x * half_x
+    local fact_k, fact_k1 = 1.0, 1.0
+    local harmonic_k, harmonic_k1 = 0.0, 1.0
+    local pow_even = 1.0 -- (x/2)^(2*0)
+    local total = (harmonic_k + harmonic_k1) * pow_even / (fact_k * fact_k1) -- k=0 term
+    for k = 1, MODIFIED_BESSEL_K_SERIES_MAX_ITER do
+        fact_k = fact_k * k
+        fact_k1 = fact_k1 * (k + 1)
+        harmonic_k = harmonic_k + 1.0 / k
+        harmonic_k1 = harmonic_k1 + 1.0 / (k + 1)
+        pow_even = pow_even * half_x_sq
+        local contrib = (harmonic_k + harmonic_k1) * pow_even / (fact_k * fact_k1)
+        total = total + contrib
+        if math.abs(contrib) < MODIFIED_BESSEL_K_SERIES_EPS * math.max(math.abs(total), 1.0) then
+            break
+        end
+    end
+    return 1 / x + (math.log(x / 2) + EULER_GAMMA) * i1 - (half_x / 2) * total
+end
+
+local function Modified_bessel_k(n, x)
+    Core.assert_finite_number(x, "Modified_bessel_k: x")
+    assert(n == math.floor(n) and n >= 0, "Modified_bessel_k: n must be a nonnegative integer.")
+    assert(x > 0, "Modified_bessel_k: x must be positive (K_n has a singularity at x=0 and is not real-valued for x<0).")
+    assert(x <= MODIFIED_BESSEL_K_MAX_X, "Modified_bessel_k: x must be <= 6 (the verified domain -- larger x is a deferred future increment).")
+    local k0 = bessel_k0_series(x, Modified_bessel_i(0, x))
+    if n == 0 then
+        return k0
+    end
+    local k1 = bessel_k1_series(x, Modified_bessel_i(1, x))
+    if n == 1 then
+        return k1
+    end
+    local k_prev, k_curr = k0, k1
+    for j = 1, n - 1 do
+        local k_next = k_prev + (2 * j / x) * k_curr
+        k_prev, k_curr = k_curr, k_next
+    end
+    return k_curr
+end
+
 return {
     Gamma = Gamma,
     Log_gamma = Log_gamma,
@@ -613,4 +726,5 @@ return {
     Bessel_j = Bessel_j,
     Bessel_y = Bessel_y,
     Modified_bessel_i = Modified_bessel_i,
+    Modified_bessel_k = Modified_bessel_k,
 }

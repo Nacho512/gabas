@@ -319,3 +319,36 @@ Testing.Assert_close(SpecialFunctions.Modified_bessel_i(50, 100), 4.821958085594
 Testing.Assert_error(function() return SpecialFunctions.Modified_bessel_i(-1, 1) end, "Modified_bessel_i: n must be a nonnegative integer")
 Testing.Assert_error(function() return SpecialFunctions.Modified_bessel_i(1.5, 1) end, "Modified_bessel_i: n must be a nonnegative integer")
 Testing.Assert_error(function() return SpecialFunctions.Modified_bessel_i(0, "1") end, "Modified_bessel_i: x")
+
+-- ===== Modified_bessel_k =====
+--
+-- Reference values below are mpmath's besselk() at 30-digit working
+-- precision (an independent, trusted reference), not values this
+-- implementation itself produced.
+
+local modified_bessel_k_ref = {
+    {0, 0.1, 2.4270690247020166}, {0, 0.5, 0.92441907122766586}, {0, 1, 0.42102443824070833},
+    {0, 2, 0.11389387274953344}, {0, 4, 0.011159676085853024}, {0, 6, 0.0012439943280131231},
+    {1, 0.1, 9.8538447808706056}, {1, 0.5, 1.6564411200033009}, {1, 1, 0.60190723019723457},
+    {1, 2, 0.13986588181652243}, {1, 4, 0.012483498887268431}, {1, 6, 0.0013439197177355090},
+    {2, 0.5, 7.5501835512408694}, {2, 2, 0.25375975456605586}, {2, 4, 0.017401425529487240},
+    {2, 6, 0.0016919675672582928}, {3, 4, 0.029884924416755671}, {5, 2, 9.4310491005964674},
+    {8, 4, 5.6931785361915472}, {10, 6, 1.1921629014358168}, {20, 0.5, 6.6655498744171556e+28},
+}
+for _, case in ipairs(modified_bessel_k_ref) do
+    local n, x, ref = case[1], case[2], case[3]
+    Testing.Assert_close(SpecialFunctions.Modified_bessel_k(n, x), ref, math.abs(ref) * 1e-9, "Modified_bessel_k(" .. n .. "," .. x .. ")")
+end
+
+-- Input validation: x=0 (singularity) and x<0 (not real-valued for
+-- K_n) are both rejected explicitly, as is the verified x <= 6 domain
+-- boundary -- the same discipline Bessel_y's x <= 12 boundary uses,
+-- narrower here because K_0/K_1's series cancels far more severely
+-- against I_0/I_1's exponential growth than Y's does against J's
+-- bounded oscillation (see the function's own header).
+Testing.Assert_error(function() return SpecialFunctions.Modified_bessel_k(0, 0) end, "Modified_bessel_k: x must be positive")
+Testing.Assert_error(function() return SpecialFunctions.Modified_bessel_k(0, -1) end, "Modified_bessel_k: x must be positive")
+Testing.Assert_error(function() return SpecialFunctions.Modified_bessel_k(0, 7) end, "Modified_bessel_k: x must be <= 6")
+Testing.Assert_error(function() return SpecialFunctions.Modified_bessel_k(-1, 1) end, "Modified_bessel_k: n must be a nonnegative integer")
+Testing.Assert_error(function() return SpecialFunctions.Modified_bessel_k(1.5, 1) end, "Modified_bessel_k: n must be a nonnegative integer")
+Testing.Assert_error(function() return SpecialFunctions.Modified_bessel_k(0, "1") end, "Modified_bessel_k: x")
