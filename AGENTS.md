@@ -1,5 +1,5 @@
 
-Before anything below: this repository's engineering conventions (naming, module architecture, the core.lua input-validation contract, dependency-direction rules, numerical rigor, testing discipline) live in PROJECT_CONVENTIONS.md at the repo root. Read that first -- it applies regardless of which AI tool is working on this code, and it explicitly covers the Lua side only (INTERNAL/LUA-PART-PROJECT/), not the LaTeX side. Everything below is specific to how Codex itself should work here.
+Before anything below: this repository's engineering conventions live in PROJECT_CONVENTIONS.md at the repo root, in three parts -- general conventions (apply everywhere), Lua-side conventions (naming, module architecture, the core.lua input-validation contract, dependency-direction rules, numerical rigor, testing discipline; scoped to INTERNAL/LUA-PART-PROJECT/), and LaTeX-side conventions (engine independence, modularity, argument validation, error handling, naming; scoped to INTERNAL/LATEX-PART-PROJECT/ -- note its naming case convention is the *opposite* of the Lua side's). Read that first -- it applies regardless of which AI tool is working on this code. Everything below is specific to how Codex itself should work here.
 
 # Codex-Specific Mandatory Working Rules
 ## These instructions are intended for Codex
