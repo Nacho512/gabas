@@ -110,6 +110,41 @@ Testing.Assert_error(function() return SpecialFunctions.Beta(1, -1) end, "Beta: 
 Testing.Assert_error(function() return SpecialFunctions.Beta("1", 1) end, "Beta: a")
 Testing.Assert_error(function() return SpecialFunctions.Log_beta(0, 1) end, "Log_beta: a must be positive")
 
+-- ===== Beta_i =====
+--
+-- Reference values below are mpmath's betainc(a,b,0,x,regularized=True)
+-- at 30-digit working precision (an independent, trusted reference),
+-- not values this implementation itself produced.
+
+local beta_i_ref = {
+    {1, 1, 0.5, 0.5}, {2, 3, 0.3, 0.3483}, {5, 5, 0.5, 0.5}, {0.5, 0.5, 0.5, 0.5},
+    {0.5, 0.5, 0.1, 0.20483276469913346}, {2, 2, 0.9, 0.972}, {10, 2, 0.5, 0.005859375},
+    {2, 10, 0.5, 0.994140625}, {100, 100, 0.5, 0.5}, {100, 100, 0.4, 0.0021600949380551489},
+    {0.1, 0.1, 0.5, 0.5}, {50, 1, 0.99, 0.60500606713753638}, {1, 50, 0.01, 0.39499393286246336},
+    {3, 7, 0.001, 8.3622755160539816e-8}, {3, 7, 0.999, 1.0},
+}
+for _, case in ipairs(beta_i_ref) do
+    local a, b, x, ref = case[1], case[2], case[3], case[4]
+    local tol = math.max(math.abs(ref) * 1e-9, 1e-12)
+    Testing.Assert_close(SpecialFunctions.Beta_i(a, b, x), ref, tol, "Beta_i(" .. a .. "," .. b .. "," .. x .. ")")
+end
+
+-- Endpoints and symmetry.
+assert(SpecialFunctions.Beta_i(2, 3, 0) == 0, "Beta_i(a,b,0) == 0")
+assert(SpecialFunctions.Beta_i(2, 3, 1) == 1, "Beta_i(a,b,1) == 1")
+for _, case in ipairs({{2, 3, 0.3}, {10, 4, 0.6}, {0.7, 5, 0.2}}) do
+    local a, b, x = case[1], case[2], case[3]
+    Testing.Assert_close(SpecialFunctions.Beta_i(a, b, x), 1 - SpecialFunctions.Beta_i(b, a, 1 - x), 1e-9,
+        "Beta_i(a,b,x) == 1 - Beta_i(b,a,1-x) at a=" .. a .. ",b=" .. b .. ",x=" .. x)
+end
+
+-- Input validation.
+Testing.Assert_error(function() return SpecialFunctions.Beta_i(0, 1, 0.5) end, "Beta_i: a must be positive")
+Testing.Assert_error(function() return SpecialFunctions.Beta_i(1, -1, 0.5) end, "Beta_i: b must be positive")
+Testing.Assert_error(function() return SpecialFunctions.Beta_i(1, 1, -0.1) end, "Beta_i: x must be in")
+Testing.Assert_error(function() return SpecialFunctions.Beta_i(1, 1, 1.1) end, "Beta_i: x must be in")
+Testing.Assert_error(function() return SpecialFunctions.Beta_i("1", 1, 0.5) end, "Beta_i: a")
+
 -- ===== Gamma_p / Gamma_q =====
 
 Testing.Assert_close(SpecialFunctions.Gamma_p(1, 1), 1 - math.exp(-1), 1e-12, "Gamma_p(1,x) = 1-e^-x (exponential CDF)")
