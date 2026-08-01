@@ -74,6 +74,36 @@ function Complex_mt.__unm(a)
     return Complex(-a.re, -a.im)
 end
 
+-- Claude: only a real exponent is supported (Complex-exponent power, e.g.
+-- j^j, is a much rarer generalization and not needed by anything in this
+-- library yet). Integer exponents go through exact repeated squaring
+-- rather than De Moivre's formula, so e.g. j^2 comes out to exactly -1
+-- instead of picking up cos/sin round-off; non-integer real exponents fall
+-- back to De Moivre (r^b at angle b*theta), the only way to define them.
+function Complex_mt.__pow(a, b)
+    a = to_complex(a)
+    assert(type(b) == "number", "Complex: exponent must be a real number (Complex-exponent power is not supported).")
+    if b == math.floor(b) then
+        local n = math.abs(b)
+        local result = Complex(1, 0)
+        local base = a
+        while n > 0 do
+            if n % 2 == 1 then result = result * base end
+            base = base * base
+            n = math.floor(n / 2)
+        end
+        if b < 0 then
+            return to_complex(1) / result
+        end
+        return result
+    end
+    local r = a:abs()
+    local theta = a:arg()
+    local new_r = r ^ b
+    local new_theta = theta * b
+    return Complex(new_r * math.cos(new_theta), new_r * math.sin(new_theta))
+end
+
 function Complex_mt.__eq(a, b)
     return a.re == b.re and a.im == b.im
 end
