@@ -70,9 +70,9 @@ local function Cross_product(v1, v2)
 end
 
 return {
-    V_Trace = VTrace,
-    V_Dot = Vdot,
-    V_Norm = VNorm,
-    V_Normalize = VNormalize,
-    Cross_Product = Cross_product,
+    V_trace = VTrace,
+    V_dot = Vdot,
+    V_norm = VNorm,
+    V_normalize = VNormalize,
+    Cross_product = Cross_product,
 }

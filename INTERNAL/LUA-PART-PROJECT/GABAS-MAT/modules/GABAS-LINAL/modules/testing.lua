@@ -43,8 +43,8 @@ local function Assert_Error(fn, pattern)
 end
 
 return {
-    Assert_Close = Assert_Close,
-    Assert_Vector_Close = Assert_Vector_Close,
-    Assert_Matrix_Close = Assert_Matrix_Close,
-    Assert_Error = Assert_Error,
+    Assert_close = Assert_Close,
+    Assert_vector_close = Assert_Vector_Close,
+    Assert_matrix_close = Assert_Matrix_Close,
+    Assert_error = Assert_Error,
 }

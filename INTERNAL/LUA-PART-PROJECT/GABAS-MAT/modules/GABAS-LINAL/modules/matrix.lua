@@ -215,18 +215,18 @@ local function Conjugate_Transpose(matriz)
 end
 
 return {
-    Show_Matrix = Show_matrix,
+    Show_matrix = Show_matrix,
     Matrix = Matrix,
     Sequence = Sequence,
-    Show_Table = Show_table,
-    Mat_Mul = Mat_mul,
-    Mat_Sum = Mat_sum,
-    Mat_Sub = Mat_sub,
-    Scalar_Mul = Scalar_mul,
+    Show_table = Show_table,
+    Mat_mul = Mat_mul,
+    Mat_sum = Mat_sum,
+    Mat_sub = Mat_sub,
+    Scalar_mul = Scalar_mul,
     Eye = Eye,
     Zeroes = Zeroes,
-    Random_Mat = Random_mat,
+    Random_mat = Random_mat,
     T = T,
-    Matrix_Vector_Mul = Matrix_Vector_Mul,
-    Conjugate_Transpose = Conjugate_Transpose,
+    Matrix_vector_mul = Matrix_Vector_Mul,
+    Conjugate_transpose = Conjugate_Transpose,
 }

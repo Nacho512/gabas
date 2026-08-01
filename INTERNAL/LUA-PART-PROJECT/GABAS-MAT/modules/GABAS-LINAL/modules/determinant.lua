@@ -67,7 +67,7 @@ end
 -- Square Strassen multiply; n must already be a power of 2.
 local function strassen_mul(A, B, n, threshold)
     if n <= threshold then
-        return Matrix.Mat_Mul(A, B)
+        return Matrix.Mat_mul(A, B)
     end
     local h = n // 2
     local A11, A12, A21, A22 = {}, {}, {}, {}
@@ -87,18 +87,18 @@ local function strassen_mul(A, B, n, threshold)
         end
     end
 
-    local M1 = strassen_mul(Matrix.Mat_Sum(A11, A22), Matrix.Mat_Sum(B11, B22), h, threshold)
-    local M2 = strassen_mul(Matrix.Mat_Sum(A21, A22), B11, h, threshold)
-    local M3 = strassen_mul(A11, Matrix.Mat_Sub(B12, B22), h, threshold)
-    local M4 = strassen_mul(A22, Matrix.Mat_Sub(B21, B11), h, threshold)
-    local M5 = strassen_mul(Matrix.Mat_Sum(A11, A12), B22, h, threshold)
-    local M6 = strassen_mul(Matrix.Mat_Sub(A21, A11), Matrix.Mat_Sum(B11, B12), h, threshold)
-    local M7 = strassen_mul(Matrix.Mat_Sub(A12, A22), Matrix.Mat_Sum(B21, B22), h, threshold)
+    local M1 = strassen_mul(Matrix.Mat_sum(A11, A22), Matrix.Mat_sum(B11, B22), h, threshold)
+    local M2 = strassen_mul(Matrix.Mat_sum(A21, A22), B11, h, threshold)
+    local M3 = strassen_mul(A11, Matrix.Mat_sub(B12, B22), h, threshold)
+    local M4 = strassen_mul(A22, Matrix.Mat_sub(B21, B11), h, threshold)
+    local M5 = strassen_mul(Matrix.Mat_sum(A11, A12), B22, h, threshold)
+    local M6 = strassen_mul(Matrix.Mat_sub(A21, A11), Matrix.Mat_sum(B11, B12), h, threshold)
+    local M7 = strassen_mul(Matrix.Mat_sub(A12, A22), Matrix.Mat_sum(B21, B22), h, threshold)
 
-    local C11 = Matrix.Mat_Sum(Matrix.Mat_Sub(Matrix.Mat_Sum(M1, M4), M5), M7)
-    local C12 = Matrix.Mat_Sum(M3, M5)
-    local C21 = Matrix.Mat_Sum(M2, M4)
-    local C22 = Matrix.Mat_Sum(Matrix.Mat_Sub(Matrix.Mat_Sum(M1, M3), M2), M6)
+    local C11 = Matrix.Mat_sum(Matrix.Mat_sub(Matrix.Mat_sum(M1, M4), M5), M7)
+    local C12 = Matrix.Mat_sum(M3, M5)
+    local C21 = Matrix.Mat_sum(M2, M4)
+    local C22 = Matrix.Mat_sum(Matrix.Mat_sub(Matrix.Mat_sum(M1, M3), M2), M6)
 
     local C = {}
     for i = 1, h do

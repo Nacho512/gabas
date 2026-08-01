@@ -41,7 +41,7 @@ end
 local function Rayleigh(matriz, v0, max_iter, tol)
     local n = Core.assert_matrix(matriz, "Rayleigh: matriz", {square = true})
     Core.assert_vector(v0, "Rayleigh: seed vector", {length = n})
-    assert(Vector.V_Norm(v0) > 0, "Rayleigh: seed vector must not be the zero vector.")
+    assert(Vector.V_norm(v0) > 0, "Rayleigh: seed vector must not be the zero vector.")
     max_iter = max_iter or 100
     Core.assert_positive_integer(max_iter, "Rayleigh: max_iter")
     -- Claude: was 1e-12 -- tighter than what the residual check below can
@@ -55,12 +55,12 @@ local function Rayleigh(matriz, v0, max_iter, tol)
     tol = tol or 1e-8
     Core.assert_nonneg_number(tol, "Rayleigh: tol")
 
-    local v = Vector.V_Normalize(v0)
-    local mu = Vector.V_Dot(Complex.Conjugate(v), mat_vec(matriz, v))
+    local v = Vector.V_normalize(v0)
+    local mu = Vector.V_dot(Complex.Conjugate(v), mat_vec(matriz, v))
     local converged = false
 
     for _ = 1, max_iter do
-        local shifted = Matrix.Mat_Sub(matriz, Matrix.Scalar_Mul(Matrix.Eye(n), mu))
+        local shifted = Matrix.Mat_sub(matriz, Matrix.Scalar_mul(Matrix.Eye(n), mu))
         local ok, v_next = pcall(Systems.Solve, shifted, v)
         if not ok then
             local message = tostring(v_next)
@@ -78,8 +78,8 @@ local function Rayleigh(matriz, v0, max_iter, tol)
             end
             error("Rayleigh: shifted solve failed before convergence: " .. message, 0)
         end
-        v = Vector.V_Normalize(v_next)
-        mu = Vector.V_Dot(Complex.Conjugate(v), mat_vec(matriz, v))
+        v = Vector.V_normalize(v_next)
+        mu = Vector.V_dot(Complex.Conjugate(v), mat_vec(matriz, v))
         -- Claude: checking only "did mu stop changing" is not a safe
         -- convergence criterion -- it has a spurious fixed point whenever the
         -- seed lands on a symmetric combination of two eigenvectors with
@@ -143,7 +143,7 @@ end
 -- it as an error rather than silently returning a wrong answer.
 -- ===========================================================================
 
-local function is_complex(x) return Complex.Is_Complex(x) end
+local function is_complex(x) return Complex.Is_complex(x) end
 local function scalar_conj(x) return is_complex(x) and x:conj() or x end
 local function scalar_re(x) return is_complex(x) and x.re or x end
 
@@ -227,8 +227,8 @@ local function bidiagonalize(A)
         local v, tau = householder(x)
         if tau ~= 0 then
             local H = embed_householder(v, tau, m, k - 1)
-            Acur = Matrix.Mat_Mul(H, Acur)
-            U1 = Matrix.Mat_Mul(U1, conj_transpose(H))
+            Acur = Matrix.Mat_mul(H, Acur)
+            U1 = Matrix.Mat_mul(U1, conj_transpose(H))
         end
         if k <= n - 1 then
             local y = {}
@@ -243,8 +243,8 @@ local function bidiagonalize(A)
                 local vbar = {}
                 for i = 1, #v2 do vbar[i] = scalar_conj(v2[i]) end
                 local Hr = embed_householder(vbar, tau2, n, k)
-                Acur = Matrix.Mat_Mul(Acur, Hr)
-                V1 = Matrix.Mat_Mul(V1, Hr)
+                Acur = Matrix.Mat_mul(Acur, Hr)
+                V1 = Matrix.Mat_mul(V1, Hr)
             end
         end
     end
@@ -312,13 +312,13 @@ local function golub_kahan_step(d, e, n, lo, hi, Ub, Vb)
     for k = lo, hi - 1 do
         local c, s = real_givens(y, z)
         local G1 = embed_real_rot(c, -s, n, k, k + 1)   -- transposed: right-mult
-        Bwork = Matrix.Mat_Mul(Bwork, G1)
-        Vb = Matrix.Mat_Mul(Vb, G1)
+        Bwork = Matrix.Mat_mul(Bwork, G1)
+        Vb = Matrix.Mat_mul(Vb, G1)
 
         local c2, s2 = real_givens(Bwork[k][k], Bwork[k + 1][k])
         local G2 = embed_real_rot(c2, s2, n, k, k + 1)  -- as-is: left-mult
-        Bwork = Matrix.Mat_Mul(G2, Bwork)
-        Ub = Matrix.Mat_Mul(Ub, Matrix.T(G2))
+        Bwork = Matrix.Mat_mul(G2, Bwork)
+        Ub = Matrix.Mat_mul(Ub, Matrix.T(G2))
 
         if k < hi - 1 then
             y = Bwork[k][k + 1]
@@ -452,7 +452,7 @@ local function svd_core(A, opts)
     -- scaling test (sv(cA) should equal |c|*sv(A) for any c, including
     -- c=1e-10): singular values came back up to 45% off before this fix.
     local scale = 1 / alpha
-    local Ascaled = Matrix.Scalar_Mul(A, scale)
+    local Ascaled = Matrix.Scalar_mul(A, scale)
 
     -- Core algorithm assumes "tall" (rows >= cols); for a wide A, solve
     -- for A^H instead (now tall) and un-transpose the result: if
@@ -517,8 +517,8 @@ local function svd_core(A, opts)
         for j = 1, nw do UbFull[i][j] = Ubsorted[i][j] end
     end
 
-    local U = Matrix.Mat_Mul(U1, UbFull)
-    local V = Matrix.Mat_Mul(V1, Vbsorted)
+    local U = Matrix.Mat_mul(U1, UbFull)
+    local V = Matrix.Mat_mul(V1, Vbsorted)
     local Sigma = Matrix.Zeroes(mw, nw)
     for i = 1, nw do Sigma[i][i] = dsorted[i] / scale end
 
@@ -536,7 +536,7 @@ local function svd_core(A, opts)
     end
 
     if opts.verify then
-        local recon = Matrix.Mat_Mul(Matrix.Mat_Mul(U, Sigma), conj_transpose(V))
+        local recon = Matrix.Mat_mul(Matrix.Mat_mul(U, Sigma), conj_transpose(V))
         local resid = 0
         for i = 1, m do
             for j = 1, n do
@@ -550,7 +550,7 @@ local function svd_core(A, opts)
             " exceeds tolerance " .. tol .. ".")
         local function orth_err(M)
             local n2 = #M[1]
-            local MhM = Matrix.Mat_Mul(conj_transpose(M), M)
+            local MhM = Matrix.Mat_mul(conj_transpose(M), M)
             local worst = 0
             for i = 1, n2 do
                 for j = 1, n2 do
@@ -843,7 +843,7 @@ local function SVD_truncated(A, k, opts)
     local Sigmak = top_left_block(Sigma, k)
     local Vk = first_cols(V, k)
     local svk = first_n(sv, k)
-    local Ak = Matrix.Mat_Mul(Matrix.Mat_Mul(Uk, Sigmak), conj_transpose(Vk))
+    local Ak = Matrix.Mat_mul(Matrix.Mat_mul(Uk, Sigmak), conj_transpose(Vk))
     return Uk, Sigmak, Vk, svk, Ak
 end
 
@@ -982,7 +982,7 @@ local function Pinv(A, opts)
     end
 
     local W = scale_cols(Vr, inv_s)
-    local Aplus = Matrix.Mat_Mul(W, conj_transpose(Ur))
+    local Aplus = Matrix.Mat_mul(W, conj_transpose(Ur))
 
     assert(#Aplus == n and #Aplus[1] == m, "Pinv: the pseudoinverse has incorrect dimensions.")
     for i = 1, n do
@@ -993,13 +993,13 @@ local function Pinv(A, opts)
     end
 
     if opts.verify then
-        local AAplus = Matrix.Mat_Mul(A, Aplus)
-        local AplusA = Matrix.Mat_Mul(Aplus, A)
+        local AAplus = Matrix.Mat_mul(A, Aplus)
+        local AplusA = Matrix.Mat_mul(Aplus, A)
         local tiny = 1e-300
-        local e1 = frob_norm(Matrix.Mat_Sub(Matrix.Mat_Mul(AAplus, A), A)) / math.max(frob_norm(A), tiny)
-        local e2 = frob_norm(Matrix.Mat_Sub(Matrix.Mat_Mul(AplusA, Aplus), Aplus)) / math.max(frob_norm(Aplus), tiny)
-        local e3 = frob_norm(Matrix.Mat_Sub(conj_transpose(AAplus), AAplus)) / math.max(frob_norm(AAplus), tiny)
-        local e4 = frob_norm(Matrix.Mat_Sub(conj_transpose(AplusA), AplusA)) / math.max(frob_norm(AplusA), tiny)
+        local e1 = frob_norm(Matrix.Mat_sub(Matrix.Mat_mul(AAplus, A), A)) / math.max(frob_norm(A), tiny)
+        local e2 = frob_norm(Matrix.Mat_sub(Matrix.Mat_mul(AplusA, Aplus), Aplus)) / math.max(frob_norm(Aplus), tiny)
+        local e3 = frob_norm(Matrix.Mat_sub(conj_transpose(AAplus), AAplus)) / math.max(frob_norm(AAplus), tiny)
+        local e4 = frob_norm(Matrix.Mat_sub(conj_transpose(AplusA), AplusA)) / math.max(frob_norm(AplusA), tiny)
         local d = math.max(m, n)
         local kappa_eff_for_tol = svr[1] / svr[r]
         local T = 1000 * d * MACHINE_EPSILON * math.max(1, kappa_eff_for_tol)
@@ -1021,9 +1021,9 @@ end
 return {
     Rayleigh = Rayleigh,
     SVD = SVD,
-    SVD_Economy = SVD_economy,
-    SVD_Reduced = SVD_reduced,
-    SVD_Truncated = SVD_truncated,
+    SVD_economy = SVD_economy,
+    SVD_reduced = SVD_reduced,
+    SVD_truncated = SVD_truncated,
     Pinv = Pinv,
 }
 
