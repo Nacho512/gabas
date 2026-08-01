@@ -426,3 +426,76 @@ Testing.Assert_error(function() return SpecialFunctions.Modified_bessel_k(0, 7) 
 Testing.Assert_error(function() return SpecialFunctions.Modified_bessel_k(-1, 1) end, "Modified_bessel_k: n must be a nonnegative integer")
 Testing.Assert_error(function() return SpecialFunctions.Modified_bessel_k(1.5, 1) end, "Modified_bessel_k: n must be a nonnegative integer")
 Testing.Assert_error(function() return SpecialFunctions.Modified_bessel_k(0, "1") end, "Modified_bessel_k: x")
+
+-- ===== Spherical_bessel_j / Spherical_bessel_y =====
+--
+-- Reference values below are mpmath's sqrt(pi/(2x))*besselj(n+1/2,x)
+-- and sqrt(pi/(2x))*bessely(n+1/2,x) at 30-digit working precision (an
+-- independent, trusted reference), not values this implementation
+-- itself produced.
+
+local spherical_bessel_j_ref = {
+    {0, 0.5, 0.95885107720840600}, {1, 0.5, 0.16253703063606657}, {2, 1, 0.062035052011373861},
+    {3, 2, 0.060722097662874828}, {5, 5, 0.10681116145650454}, {8, 10, 0.12557802364956783},
+    {10, 10, 0.064605154492564264}, {15, 20, 0.021549233727662687}, {20, 50, -0.015785029898269298},
+    {30, 100, 0.0087006285144475758}, {50, 50, 0.018829107369282617},
+}
+for _, case in ipairs(spherical_bessel_j_ref) do
+    local n, x, ref = case[1], case[2], case[3]
+    Testing.Assert_close(SpecialFunctions.Spherical_bessel_j(n, x), ref, math.abs(ref) * 1e-9, "Spherical_bessel_j(" .. n .. "," .. x .. ")")
+end
+
+local spherical_bessel_y_ref = {
+    {0, 0.5, -1.7551651237807454}, {1, 0.5, -4.4691813247698969}, {2, 1, -3.6050175661599690},
+    {3, 2, -1.4843665574430799}, {5, 5, -0.32046504674973918}, {8, 10, -0.041117327754934506},
+    {10, 10, -0.17245367208805785}, {15, 20, 0.058647788563445509}, {20, 50, 0.013759531302541216},
+    {30, 20, -51.616700751016884},
+}
+for _, case in ipairs(spherical_bessel_y_ref) do
+    local n, x, ref = case[1], case[2], case[3]
+    Testing.Assert_close(SpecialFunctions.Spherical_bessel_y(n, x), ref, math.abs(ref) * 1e-9, "Spherical_bessel_y(" .. n .. "," .. x .. ")")
+end
+
+-- j_n(0): 1 for n=0, 0 for n>0.
+assert(SpecialFunctions.Spherical_bessel_j(0, 0) == 1, "Spherical_bessel_j(0,0) == 1")
+assert(SpecialFunctions.Spherical_bessel_j(3, 0) == 0, "Spherical_bessel_j(n>0,0) == 0")
+
+-- Negative x: unlike ordinary Bessel_y, y_n has no ln(x/2) term, so it
+-- is genuinely real and well-defined for negative x too -- checked
+-- directly (not merely via the parity identity applied to itself,
+-- which would be circular) against mpmath's own half-integer besselj
+-- evaluated at the corresponding POSITIVE argument.
+local spherical_bessel_j_negative_ref = {
+    {0, -1, 0.84147098480789651}, {1, -5, 0.095089408079170792},
+    {3, -10, 0.039495844984470324}, {5, -1, -9.2561158611258164e-5},
+}
+for _, case in ipairs(spherical_bessel_j_negative_ref) do
+    local n, x, ref = case[1], case[2], case[3]
+    Testing.Assert_close(SpecialFunctions.Spherical_bessel_j(n, x), ref, math.abs(ref) * 1e-9, "Spherical_bessel_j(" .. n .. "," .. x .. ") [negative x]")
+end
+
+local spherical_bessel_y_negative_ref = {
+    {0, -1, 0.54030230586813972}, {1, -5, 0.18043836751409864},
+    {3, -10, -0.095327478876568903}, {5, -1, -999.44034339223641},
+}
+for _, case in ipairs(spherical_bessel_y_negative_ref) do
+    local n, x, ref = case[1], case[2], case[3]
+    Testing.Assert_close(SpecialFunctions.Spherical_bessel_y(n, x), ref, math.abs(ref) * 1e-9, "Spherical_bessel_y(" .. n .. "," .. x .. ") [negative x]")
+end
+
+-- The catastrophic-forward-recurrence-instability case this whole
+-- Miller's-algorithm design avoids: forward recurrence from j_0, j_1
+-- already goes completely wrong (not just imprecise) by n=8, x=0.5 --
+-- confirmed directly in Python before writing this. Spherical_bessel_j
+-- must stay accurate there.
+Testing.Assert_close(SpecialFunctions.Spherical_bessel_j(8, 0.5), 1.126143960212129e-10, 1e-9 * 1.126143960212129e-10,
+    "Spherical_bessel_j(8,0.5) stays accurate where naive forward recurrence goes catastrophically wrong")
+
+Testing.Assert_error(function() return SpecialFunctions.Spherical_bessel_j(-1, 1) end, "Spherical_bessel_j: n must be a nonnegative integer")
+Testing.Assert_error(function() return SpecialFunctions.Spherical_bessel_j(1.5, 1) end, "Spherical_bessel_j: n must be a nonnegative integer")
+Testing.Assert_error(function() return SpecialFunctions.Spherical_bessel_j(0, "1") end, "Spherical_bessel_j: x")
+
+Testing.Assert_error(function() return SpecialFunctions.Spherical_bessel_y(0, 0) end, "Spherical_bessel_y: x must not be zero")
+Testing.Assert_error(function() return SpecialFunctions.Spherical_bessel_y(-1, 1) end, "Spherical_bessel_y: n must be a nonnegative integer")
+Testing.Assert_error(function() return SpecialFunctions.Spherical_bessel_y(1.5, 1) end, "Spherical_bessel_y: n must be a nonnegative integer")
+Testing.Assert_error(function() return SpecialFunctions.Spherical_bessel_y(0, "1") end, "Spherical_bessel_y: x")
