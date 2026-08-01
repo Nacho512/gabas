@@ -6,6 +6,7 @@ package.path = modules_root .. "/?.lua;" .. modules_root .. "/?/init.lua;" .. pa
 local tests = {
     "test_special_functions",
     "test_orthogonal_polynomials",
+    "test_elliptic_integrals",
 }
 
 for _, name in ipairs(tests) do
