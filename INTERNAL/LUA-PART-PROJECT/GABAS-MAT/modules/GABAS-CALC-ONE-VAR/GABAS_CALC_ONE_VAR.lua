@@ -5,6 +5,22 @@
 -- like syntax into a real, callable Lua function of one variable x, since
 -- every numerical method (finite differences, root finding, quadrature...)
 -- needs an actual function to call, not a piece of text.
+--
+-- Claude: every trig function here (sin/cos/tan and their Complex-aware
+-- versions) works in RADIANS, exclusively, with no implicit conversion
+-- anywhere in the pipeline -- deliberately, not just because that's what
+-- math.sin/cos/tan happen to do. This is the one convention every
+-- differentiation/integration identity in calculus assumes: d/dx sin(x)
+-- = cos(x) is only true when x is in radians -- in degrees, the chain
+-- rule silently introduces a pi/180 factor into every derivative that
+-- touches a trig function, since sin(x_deg) really means
+-- sin(x_deg * pi/180). This module must never blur that: internally,
+-- "x" is always radians, full stop. Degree INPUT is offered separately
+-- and explicitly (sind/cosd/tand below), as pure syntax sugar that
+-- converts to radians before ever reaching sin/cos/tan -- so the
+-- pi/180 factor stays a normal, visible consequence of the chain rule
+-- once derivatives are built, rather than something hidden inside the
+-- trig functions themselves.
 local Complex = require("GABAS-LINAL.modules.complex")
 
 -- Claude: whitespace is insignificant everywhere in a math expression (no
@@ -135,8 +151,13 @@ end
 -- atan are NOT extended yet -- complex-argument inverse trig needs real
 -- care around branch cuts, a separate, not-yet-built increment, same
 -- status as inv().
+--
+-- sind/cosd/tand are the degree-input convenience versions -- see the note
+-- above local Calc_one_var_sind for why this is safe to bolt on as pure
+-- syntax sugar without touching what sin/cos/tan themselves mean.
 local FUNCTION_ALIASES = {
     sin = "Calc_one_var_sin", cos = "Calc_one_var_cos", tan = "Calc_one_var_tan",
+    sind = "Calc_one_var_sind", cosd = "Calc_one_var_cosd", tand = "Calc_one_var_tand",
     asin = "math.asin", acos = "math.acos", atan = "math.atan",
     sinh = "Calc_one_var_sinh", cosh = "Calc_one_var_cosh", tanh = "Calc_one_var_tanh",
     abs = "Calc_one_var_abs", sqrt = "Calc_one_var_sqrt", exp = "Calc_one_var_exp", ln = "Calc_one_var_ln",
@@ -193,6 +214,21 @@ local Calc_one_var_tan = dispatch_real_or_complex(math.tan, Complex.Tan)
 local Calc_one_var_sinh = dispatch_real_or_complex(real_sinh, Complex.Sinh)
 local Calc_one_var_cosh = dispatch_real_or_complex(real_cosh, Complex.Cosh)
 local Calc_one_var_tanh = dispatch_real_or_complex(real_tanh, Complex.Tanh)
+
+-- Claude: sind/cosd/tand -- degree-input convenience, but the ONLY thing
+-- they do is multiply by DEG_TO_RAD before handing off to the real
+-- (radians-only) dispatchers above; nothing about sin/cos/tan themselves
+-- changes. z*DEG_TO_RAD works unchanged whether z is a plain real or a
+-- Complex value (Complex's __mul already promotes a plain-number operand),
+-- so these need no type check of their own -- and because the conversion
+-- is ordinary multiplication rather than something special-cased, the
+-- future derivative engine will pick up the pi/180 factor for free via
+-- the ordinary chain rule, exactly like differentiating any other
+-- composition.
+local DEG_TO_RAD = math.pi / 180
+local function Calc_one_var_sind(z) return Calc_one_var_sin(z * DEG_TO_RAD) end
+local function Calc_one_var_cosd(z) return Calc_one_var_cos(z * DEG_TO_RAD) end
+local function Calc_one_var_tand(z) return Calc_one_var_tan(z * DEG_TO_RAD) end
 
 -- Claude: exp/ln/sqrt need one more branch than a plain real/Complex
 -- dispatch: a NEGATIVE real argument to ln or sqrt has no real result
@@ -272,6 +308,9 @@ local COMPILE_ENV = {
     Calc_one_var_sin = Calc_one_var_sin,
     Calc_one_var_cos = Calc_one_var_cos,
     Calc_one_var_tan = Calc_one_var_tan,
+    Calc_one_var_sind = Calc_one_var_sind,
+    Calc_one_var_cosd = Calc_one_var_cosd,
+    Calc_one_var_tand = Calc_one_var_tand,
     Calc_one_var_sinh = Calc_one_var_sinh,
     Calc_one_var_cosh = Calc_one_var_cosh,
     Calc_one_var_tanh = Calc_one_var_tanh,
