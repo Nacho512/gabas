@@ -183,6 +183,35 @@ for _, case in ipairs(bessel_j_ref) do
     Testing.Assert_close(SpecialFunctions.Bessel_j(n, x), ref, 1e-9, "Bessel_j(" .. n .. "," .. x .. ")")
 end
 
+-- Beyond the old power series' |x| <= 15 boundary: Miller's algorithm
+-- (backward recurrence + Neumann normalization) has no known breakdown
+-- mechanism as |x| or n grow, and this is verified directly against
+-- mpmath.besselj across large x, large n, n >> x, and x >> n together --
+-- not just a couple of spot checks past the old boundary.
+local bessel_j_extended_ref = {
+    {0, 20, 0.16702466434058315}, {5, 20, 0.15116976798239497}, {20, 20, 0.16474777377532653},
+    {0, 50, 0.055812327669251815}, {10, 50, -0.11384784914946939}, {50, 50, 0.12140902189761506},
+    {0, 100, 0.019985850304223122}, {25, 100, 0.078504273355993287}, {100, 100, 0.096366673295861560},
+    {50, 5, 2.2942476159525401e-45}, {100, 1, 8.4318287896267085e-189},
+    {200, 300, -0.019369872600834379},
+}
+for _, case in ipairs(bessel_j_extended_ref) do
+    local n, x, ref = case[1], case[2], case[3]
+    local tol = math.max(math.abs(ref) * 1e-10, 1e-55)
+    Testing.Assert_close(SpecialFunctions.Bessel_j(n, x), ref, tol, "Bessel_j(" .. n .. "," .. x .. ") [extended domain]")
+end
+
+-- Negative x beyond the old boundary too: J_n(-x) = (-1)^n * J_n(x) for
+-- integer n, so this also exercises the extended-domain path both
+-- directly (mpmath.besselj at negative x) and via the identity.
+local bessel_j_negative_extended_ref = {
+    {0, -20, 0.16702466434058315}, {1, -20, -0.066833124175850046}, {3, -50, -0.092734804061634432},
+}
+for _, case in ipairs(bessel_j_negative_extended_ref) do
+    local n, x, ref = case[1], case[2], case[3]
+    Testing.Assert_close(SpecialFunctions.Bessel_j(n, x), ref, math.abs(ref) * 1e-10, "Bessel_j(" .. n .. "," .. x .. ") [extended, negative x]")
+end
+
 -- J_n(0): 1 for n=0, 0 for n>0.
 assert(SpecialFunctions.Bessel_j(0, 0) == 1, "Bessel_j(0,0) == 1")
 assert(SpecialFunctions.Bessel_j(3, 0) == 0, "Bessel_j(n>0,0) == 0")
@@ -195,10 +224,7 @@ for _, n in ipairs({0, 1, 2, 3}) do
         "Bessel_j(" .. n .. ",-x) = (-1)^" .. n .. "*Bessel_j(" .. n .. ",x)")
 end
 
--- Input validation: the verified domain (|x| <= 15) is enforced
--- explicitly, not silently extrapolated past where it's been checked.
-Testing.Assert_error(function() return SpecialFunctions.Bessel_j(0, 16) end, "Bessel_j: |x| must be <= 15")
-Testing.Assert_error(function() return SpecialFunctions.Bessel_j(0, -20) end, "Bessel_j: |x| must be <= 15")
+-- Input validation.
 Testing.Assert_error(function() return SpecialFunctions.Bessel_j(-1, 1) end, "Bessel_j: n must be a nonnegative integer")
 Testing.Assert_error(function() return SpecialFunctions.Bessel_j(1.5, 1) end, "Bessel_j: n must be a nonnegative integer")
 Testing.Assert_error(function() return SpecialFunctions.Bessel_j(0, "1") end, "Bessel_j: x")
