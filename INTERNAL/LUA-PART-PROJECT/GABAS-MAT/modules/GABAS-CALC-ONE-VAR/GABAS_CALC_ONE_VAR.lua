@@ -1,10 +1,22 @@
 -- [Calc One Var]
--- One-variable calculus. Starts with Compile_Expression: the prerequisite
--- for everything else here (numeric derivatives today, symbolic ones
--- later) -- it turns a string the user typed in a friendly, calculator-
--- like syntax into a real, callable Lua function of one variable x, since
--- every numerical method (finite differences, root finding, quadrature...)
--- needs an actual function to call, not a piece of text.
+-- One-variable calculus. Starts with Compile_Expression -- turns a string
+-- the user typed in a friendly, calculator-like syntax into a real,
+-- callable Lua function of one variable x -- and builds on it with
+-- Derivative_at_point, the numerical derivative of that function at a
+-- real point.
+--
+-- Claude: Derivative_at_point uses forward-mode automatic differentiation
+-- via Dual numbers (modules/dual.lua), not finite differences -- exact up
+-- to floating-point rounding, no step-size parameter, no truncation
+-- error. Every Calc_one_var_* primitive below (sin/cos/exp/ln/...) already
+-- dispatches on whether its argument is Dual, the same way it already
+-- dispatches on Complex for "j" -- so differentiating a compiled
+-- expression is just calling that SAME function with a Dual seed instead
+-- of a plain number, and the derivative propagates through the existing
+-- bytecode via operator overloading. Deliberately scoped to a REAL x only
+-- (see dual.lua's header) -- differentiating with respect to a complex
+-- variable itself (Jacobian/Wirtinger modes) is a different problem,
+-- planned as its own separate module.
 --
 -- Claude: every trig function here (sin/cos/tan and their Complex-aware
 -- versions) works in RADIANS, exclusively, with no implicit conversion
@@ -22,6 +34,8 @@
 -- once derivatives are built, rather than something hidden inside the
 -- trig functions themselves.
 local Complex = require("GABAS-LINAL.modules.complex")
+local Dual = require("GABAS-CALC-ONE-VAR.modules.dual")
+local Core = require("GABAS-CALC-ONE-VAR.modules.core")
 
 -- Claude: whitespace is insignificant everywhere in a math expression (no
 -- string literals ever appear here), so every step downstream can assume a
@@ -198,9 +212,14 @@ local function real_tanh(x) return real_sinh(x) / real_cosh(x) end
 -- Claude: real_fn is used for a plain number (unchanged behavior, still
 -- returns a plain number); complex_fn (from GABAS-LINAL's Complex module)
 -- is used once an argument is actually Complex, i.e. some upstream "j"
--- was involved. This is the shared shape for every dispatcher below.
-local function dispatch_real_or_complex(real_fn, complex_fn)
+-- was involved; dual_fn is used once an argument is actually Dual, i.e.
+-- Derivative_at_point (below) is propagating a derivative through this
+-- call. This is the shared shape for every dispatcher below.
+local function dispatch3(real_fn, complex_fn, dual_fn)
     return function(z)
+        if Dual.Is_dual(z) then
+            return dual_fn(z)
+        end
         if Complex.Is_complex(z) then
             return complex_fn(z)
         end
@@ -208,12 +227,51 @@ local function dispatch_real_or_complex(real_fn, complex_fn)
     end
 end
 
-local Calc_one_var_sin = dispatch_real_or_complex(math.sin, Complex.Sin)
-local Calc_one_var_cos = dispatch_real_or_complex(math.cos, Complex.Cos)
-local Calc_one_var_tan = dispatch_real_or_complex(math.tan, Complex.Tan)
-local Calc_one_var_sinh = dispatch_real_or_complex(real_sinh, Complex.Sinh)
-local Calc_one_var_cosh = dispatch_real_or_complex(real_cosh, Complex.Cosh)
-local Calc_one_var_tanh = dispatch_real_or_complex(real_tanh, Complex.Tanh)
+-- Claude: forward-declared so the dual_fn rules just below can close over
+-- them by upvalue (e.g. sin's rule needs cos) even though they're only
+-- ASSIGNED after every rule is defined -- by the time any of these is
+-- actually called, every upvalue already has its final function.
+local Calc_one_var_sin, Calc_one_var_cos, Calc_one_var_tan
+local Calc_one_var_sinh, Calc_one_var_cosh, Calc_one_var_tanh
+
+-- Claude: each dual_fn is the chain rule, g(u)' = g'(u)*u', reusing the
+-- ALREADY-DISPATCHED real/Complex primitives above for both g(u) and the
+-- derivative-rule term g'(u) -- u itself is never Dual here (it's the
+-- .value of an outer Dual), so calling e.g. Calc_one_var_cos(u) safely
+-- lands in the real or Complex branch, never recurses back into a dual_fn.
+local function sin_dual(z)
+    local u, du = z.value, z.derivative
+    return Dual.Dual(Calc_one_var_sin(u), Calc_one_var_cos(u) * du)
+end
+local function cos_dual(z)
+    local u, du = z.value, z.derivative
+    return Dual.Dual(Calc_one_var_cos(u), -(Calc_one_var_sin(u) * du))
+end
+local function tan_dual(z)
+    local u, du = z.value, z.derivative
+    local c = Calc_one_var_cos(u)
+    return Dual.Dual(Calc_one_var_tan(u), du / (c * c))
+end
+local function sinh_dual(z)
+    local u, du = z.value, z.derivative
+    return Dual.Dual(Calc_one_var_sinh(u), Calc_one_var_cosh(u) * du)
+end
+local function cosh_dual(z)
+    local u, du = z.value, z.derivative
+    return Dual.Dual(Calc_one_var_cosh(u), Calc_one_var_sinh(u) * du)
+end
+local function tanh_dual(z)
+    local u, du = z.value, z.derivative
+    local c = Calc_one_var_cosh(u)
+    return Dual.Dual(Calc_one_var_tanh(u), du / (c * c))
+end
+
+Calc_one_var_sin = dispatch3(math.sin, Complex.Sin, sin_dual)
+Calc_one_var_cos = dispatch3(math.cos, Complex.Cos, cos_dual)
+Calc_one_var_tan = dispatch3(math.tan, Complex.Tan, tan_dual)
+Calc_one_var_sinh = dispatch3(real_sinh, Complex.Sinh, sinh_dual)
+Calc_one_var_cosh = dispatch3(real_cosh, Complex.Cosh, cosh_dual)
+Calc_one_var_tanh = dispatch3(real_tanh, Complex.Tanh, tanh_dual)
 
 -- Claude: sind/cosd/tand -- degree-input convenience, but the ONLY thing
 -- they do is multiply by DEG_TO_RAD before handing off to the real
@@ -235,33 +293,94 @@ local function Calc_one_var_tand(z) return Calc_one_var_tan(z * DEG_TO_RAD) end
 -- (today that would silently come back as nan from math.log/math.sqrt),
 -- but it has a perfectly well-defined Complex one (sqrt(-4) = 2i,
 -- ln(-1) = i*pi) now that Complex.Sqrt/Ln exist -- so a negative real is
--- auto-promoted to Complex rather than left to fail silently.
-local function Calc_one_var_exp(z)
+-- auto-promoted to Complex rather than left to fail silently. Forward-
+-- declared for the same self-reference reason as sin/cos/... above (each
+-- dual_fn calls the real/Complex-dispatched version of itself, on u).
+local Calc_one_var_exp, Calc_one_var_ln, Calc_one_var_sqrt, Calc_one_var_abs
+
+-- d/du[e^u] = e^u -- reuses new_value (already e^u) rather than
+-- recomputing it.
+local function exp_dual(z)
+    local u, du = z.value, z.derivative
+    local new_value = Calc_one_var_exp(u)
+    return Dual.Dual(new_value, new_value * du)
+end
+
+Calc_one_var_exp = function(z)
+    if Dual.Is_dual(z) then return exp_dual(z) end
     if Complex.Is_complex(z) then return Complex.Exp(z) end
     return math.exp(z)
 end
 
-local function Calc_one_var_ln(z)
+-- d/du[ln(u)] = u'/u -- valid unchanged whether u ended up real or
+-- Complex-promoted: promoting to the principal branch only adds a
+-- CONSTANT i*pi, which vanishes under differentiation, so the formula
+-- itself never needs to branch on which case produced the value.
+local function ln_dual(z)
+    local u, du = z.value, z.derivative
+    return Dual.Dual(Calc_one_var_ln(u), du / u)
+end
+
+Calc_one_var_ln = function(z)
+    if Dual.Is_dual(z) then return ln_dual(z) end
     if Complex.Is_complex(z) then return Complex.Ln(z) end
     if z < 0 then return Complex.Ln(Complex.Complex(z, 0)) end
     return math.log(z)
 end
 
-local function Calc_one_var_sqrt(z)
+-- d/du[sqrt(u)] = 1/(2*sqrt(u)) -- reuses new_value (already sqrt(u)),
+-- same "the branch is just a constant offset" reasoning as ln above.
+local function sqrt_dual(z)
+    local u, du = z.value, z.derivative
+    local new_value = Calc_one_var_sqrt(u)
+    return Dual.Dual(new_value, du / (2 * new_value))
+end
+
+Calc_one_var_sqrt = function(z)
+    if Dual.Is_dual(z) then return sqrt_dual(z) end
     if Complex.Is_complex(z) then return Complex.Sqrt(z) end
     if z < 0 then return Complex.Sqrt(Complex.Complex(z, 0)) end
     return math.sqrt(z)
 end
 
-local function Calc_one_var_abs(z)
+-- Claude: |x| is genuinely NOT differentiable at x = 0 (the left and
+-- right derivatives disagree, -1 vs +1) -- rejected explicitly rather
+-- than arbitrarily returning 0 the way a careless branch might (the
+-- document's own warning, section 12.9). For a Complex-valued u(x) --
+-- which is still a function of a single REAL x, so this stays well-
+-- defined -- |u(x)| = sqrt(re^2+im^2) is real-valued, and its derivative
+-- is Re(u' * conj(u)) / |u|, away from u = 0.
+local function abs_dual(z)
+    local u, du = z.value, z.derivative
+    if Complex.Is_complex(u) then
+        local new_value = u:abs()
+        assert(new_value ~= 0, "Calc_one_var_abs: not differentiable at 0.")
+        local product = du * u:conj()
+        local re_part = Complex.Is_complex(product) and product.re or product
+        return Dual.Dual(new_value, re_part / new_value)
+    end
+    assert(u ~= 0, "Calc_one_var_abs: not differentiable at 0 (left and right derivatives disagree).")
+    local sign = u > 0 and 1 or -1
+    return Dual.Dual(math.abs(u), sign * du)
+end
+
+Calc_one_var_abs = function(z)
+    if Dual.Is_dual(z) then return abs_dual(z) end
     if Complex.Is_complex(z) then return z:abs() end
     return math.abs(z)
 end
 
 -- Claude: same negative-real-promotes-to-Complex policy as ln above,
 -- generalized to log_base(x) = Ln(x) / Ln(base) (base is always a real,
--- positive literal from "log_N(...)" -- see translate_log_base).
+-- positive literal from "log_N(...)" -- see translate_log_base, so base
+-- itself is never Dual). Derivative: d/du[log_base(u)] = u'/(u*ln(base)),
+-- same "branch is just a constant offset" reasoning as ln.
 local function Calc_one_var_log_base(base, x)
+    if Dual.Is_dual(x) then
+        local u, du = x.value, x.derivative
+        local new_value = Calc_one_var_log_base(base, u)
+        return Dual.Dual(new_value, du / (u * math.log(base)))
+    end
     if Complex.Is_complex(x) then
         return Complex.Ln(x) / math.log(base)
     end
@@ -278,10 +397,31 @@ end
 -- root of -8 is -2) -- computed as -((-radicand)^(1/index)) to avoid
 -- raising a negative base to a fractional power, which Lua's `^` cannot
 -- do (it would silently produce nan).
+--
+-- Claude: the Dual branch mirrors this SAME real-only convention (it does
+-- NOT delegate to the general power rule in dual.lua, which would
+-- auto-promote a negative radicand to Complex -- a different, inconsistent
+-- answer from Root_any's own -8^(1/3) = -2 policy). index is always a
+-- plain constant here (never Dual), since "root_N(...)" only ever
+-- captures a literal number for N. A Complex radicand is not supported,
+-- consistent with the non-Dual branch just below rejecting one too.
 local function Root_any(index, radicand)
-    assert(type(index) == "number" and index == index, "Root_any: index must be a real number.")
+    Core.assert_finite_number(index, "Root_any: index")
     assert(index ~= 0, "Root_any: index cannot be zero.")
-    assert(type(radicand) == "number" and radicand == radicand, "Root_any: radicand must be a real number.")
+    if Dual.Is_dual(radicand) then
+        local r, dr = radicand.value, radicand.derivative
+        Core.assert_finite_number(r, "Root_any: radicand")
+        if r > 0 then
+            local new_value = r ^ (1 / index)
+            return Dual.Dual(new_value, (1 / index) * (r ^ (1 / index - 1)) * dr)
+        end
+        assert(index == math.floor(index) and (index % 2) == 1,
+            "Root_any: the derivative of the root of a negative radicand is only real-valued when index is an odd integer.")
+        assert(r ~= 0, "Root_any: not differentiable at radicand = 0.")
+        local new_value = -((-r) ^ (1 / index))
+        return Dual.Dual(new_value, (1 / index) * ((-r) ^ (1 / index - 1)) * dr)
+    end
+    Core.assert_finite_number(radicand, "Root_any: radicand")
     if radicand >= 0 then
         return radicand ^ (1 / index)
     end
@@ -379,8 +519,7 @@ local COMPILE_ENV = {
 -- ordinary polynomial (x**2 + 1 is not a mistake). A caller that only
 -- wants f can just ignore the second value, same as always.
 local function Compile_Expression(expr)
-    assert(type(expr) == "string" and expr:match("%S"),
-        "Compile_Expression: expr must be a non-blank string.")
+    Core.assert_nonblank_string(expr, "Compile_Expression: expr")
     local normalized = strip_whitespace(expr)
     normalized = normalize_brackets(normalized)
     normalized = translate_log_base(normalized)
@@ -401,7 +540,88 @@ local function Compile_Expression(expr)
     return f, normalized
 end
 
+-- Claude: NaN-safe on both plain reals and Complex values -- used to
+-- reject a derivative that silently went bad (e.g. from a domain issue an
+-- individual primitive rule didn't explicitly guard) rather than handing
+-- the caller a NaN with no explanation.
+local function has_nan(v)
+    if Complex.Is_complex(v) then
+        return v.re ~= v.re or v.im ~= v.im
+    end
+    return type(v) == "number" and v ~= v
+end
+
+-- Derivative_at_point(f, x0): the numerical derivative of a real-to-real-
+-- or-complex function f at a real point x0, via forward-mode automatic
+-- differentiation (dual numbers) -- exact up to floating-point rounding,
+-- with no step-size parameter and no finite-difference truncation error,
+-- unlike ordinary numerical differentiation.
+--
+-- f is normally the function returned by Compile_expression, though any
+-- Lua function of one argument works: the derivative comes from calling
+-- that SAME f with a Dual seed instead of a plain number. Every
+-- arithmetic operation and every Calc_one_var_* primitive f's body might
+-- use already knows how to propagate a Dual value -- exactly the same way
+-- they already know how to propagate a Complex one for "j" -- so no
+-- separate parser or expression tree is needed; the derivative rides
+-- through the SAME compiled bytecode Compile_expression already produced.
+--
+-- Deliberately scoped to a REAL x0 only (see the Dual module header) --
+-- differentiating with respect to a complex variable itself is a
+-- different problem (holomorphicity, branch cuts, Jacobian/Wirtinger
+-- modes), planned as a separate module, not folded in here.
+--
+-- Returns derivative, value: derivative first, since that is this
+-- function's whole purpose; value = f(x0) comes back too, already
+-- computed along the way at no extra cost, useful e.g. to sanity-check
+-- against a known value.
+local function Derivative_at_point(f, x0)
+    Core.assert_callable(f, "Derivative_at_point: f")
+    Core.assert_finite_number(x0, "Derivative_at_point: x0")
+    local seed = Dual.Dual(x0, 1)
+    local ok, result = pcall(f, seed)
+    assert(ok, "Derivative_at_point: error while evaluating f at x0 -- " .. tostring(result))
+    if Dual.Is_dual(result) then
+        local value, derivative = result.value, result.derivative
+        assert(not has_nan(value), "Derivative_at_point: the expression evaluated to NaN at x0.")
+        assert(not has_nan(derivative), "Derivative_at_point: the derivative evaluated to NaN at x0.")
+        return derivative, value
+    end
+    -- f never actually used x (e.g. a constant expression like "7") --
+    -- its derivative is trivially 0 everywhere.
+    return 0, result
+end
+
+local function magnitude(v)
+    if Complex.Is_complex(v) then return v:abs() end
+    return math.abs(v)
+end
+
+-- Claude: an OPTIONAL, independent cross-check against a central finite
+-- difference (technical document, section 15.1) -- NOT the primary
+-- method (Derivative_at_point's dual-number result is already exact up
+-- to rounding), just a cheap second opinion that would catch a mistake
+-- in one of the hand-coded derivative rules above. h follows the standard
+-- balance between central-difference truncation error (~h^2) and
+-- floating-point round-off (~epsilon/h): h = cbrt(machine epsilon),
+-- scaled by max(1, |x0|) so it stays meaningful for a large x0 too.
+--
+-- Returns agrees (boolean), finite_difference (the independent estimate).
+local function Verify_derivative_at_point(f, x0, derivative, tolerance)
+    Core.assert_callable(f, "Verify_derivative_at_point: f")
+    Core.assert_finite_number(x0, "Verify_derivative_at_point: x0")
+    Core.assert_finite_scalar_or_dual(derivative, "Verify_derivative_at_point: derivative")
+    tolerance = tolerance or 1e-4
+    Core.assert_nonneg_number(tolerance, "Verify_derivative_at_point: tolerance")
+    local h = (Core.MACHINE_EPSILON ^ (1 / 3)) * math.max(1, math.abs(x0))
+    local finite_difference = (f(x0 + h) - f(x0 - h)) / (2 * h)
+    local agrees = magnitude(finite_difference - derivative) <= tolerance
+    return agrees, finite_difference
+end
+
 return {
     Compile_expression = Compile_Expression,
     Root_any = Root_any,
+    Derivative_at_point = Derivative_at_point,
+    Verify_derivative_at_point = Verify_derivative_at_point,
 }
