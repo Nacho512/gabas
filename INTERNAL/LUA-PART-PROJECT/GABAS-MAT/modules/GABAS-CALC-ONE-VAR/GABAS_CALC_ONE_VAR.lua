@@ -7,6 +7,7 @@
 --   compile_expression   -- modules/compile_expression.lua -- parses/compiles a symbolic expression into a callable Lua function
 --   dif_numeric          -- modules/dif_numeric.lua         -- numerical differentiation (forward-mode AD via Dual numbers)
 --   integration_numeric  -- modules/integration_numeric.lua -- numerical integration (adaptive Gauss-Kronrod quadrature)
+--   roots_numeric        -- modules/roots_numeric.lua       -- numerical root-finding (Bisection, Newton, Secant)
 --
 -- Claude: "core", "dual", and "quadrature" are deliberately NOT in this
 -- list -- core.lua holds internal validation plumbing, dual.lua and
@@ -18,6 +19,7 @@ local submodules = {
     "compile_expression",
     "dif_numeric",
     "integration_numeric",
+    "roots_numeric",
 }
 
 local CalcOneVar = {}

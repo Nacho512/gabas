@@ -4,6 +4,7 @@ local modules_root = root:match("^(.*)/GABAS%-CALC%-ONE%-VAR$")
 package.path = modules_root .. "/?.lua;" .. modules_root .. "/?/init.lua;" .. package.path
 
 local tests = {
+    "test_compile_expression",
     "test_calc_one_var",
     "test_quadrature",
     "test_integral",
@@ -13,6 +14,7 @@ local tests = {
     "test_integral_tanh_sinh",
     "test_integral_oscillatory",
     "test_resolve_function",
+    "test_roots_numeric",
 }
 
 for _, name in ipairs(tests) do
