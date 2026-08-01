@@ -464,12 +464,12 @@ local Calc_one_var_e = math.exp(1)
 local Calc_one_var_j = Complex.Complex(0, 1)
 
 -- The environment the compiled expression actually runs in -- deliberately
--- NOT Lua's real global table (_G). Compiled user expressions only ever
--- see `math` and the handful of helpers above; they can't read or write
--- anything else in the process, and nothing in the process can be
--- shadowed by whatever a user happens to type.
+-- NOT Lua's real global table (_G), and deliberately NOT the whole `math`
+-- table either (see ALLOWED_IDENTIFIERS below for why). Compiled user
+-- expressions only ever see the handful of helpers below; they can't
+-- read or write anything else in the process, and nothing in the process
+-- can be shadowed by whatever a user happens to type.
 local COMPILE_ENV = {
-    math = math,
     Calc_one_var_log_base = Calc_one_var_log_base,
     Calc_one_var_sin = Calc_one_var_sin,
     Calc_one_var_cos = Calc_one_var_cos,
@@ -491,6 +491,63 @@ local COMPILE_ENV = {
     Calc_one_var_j = Calc_one_var_j,
     Root_any = Root_any,
 }
+
+-- Claude: the exhaustive whitelist of every bare identifier this package
+-- permits in the FULLY NORMALIZED source about to be compiled (technical
+-- document, section 17.1's "strict whitelist" architecture) -- used as a
+-- Lua table the same way a Python dictionary would be, purely for O(1)
+-- membership testing (name -> true). "x" (the one real independent
+-- variable) is added by hand, since it is a function PARAMETER in the
+-- compiled source, not a COMPILE_ENV key; every other allowed name is
+-- read directly off COMPILE_ENV's own keys, rather than duplicated here
+-- by hand -- so this can never silently drift out of sync with what the
+-- compiled code can actually reach. Adding a new dispatcher to
+-- COMPILE_ENV automatically whitelists it; nothing can be reachable from
+-- compiled code without ALSO being whitelisted here, and nothing can be
+-- whitelisted here without ALSO actually being reachable.
+local ALLOWED_IDENTIFIERS = { x = true }
+for key in pairs(COMPILE_ENV) do
+    ALLOWED_IDENTIFIERS[key] = true
+end
+
+-- Claude: strips every Lua NUMERIC LITERAL (including a scientific-
+-- notation exponent, e.g. "1e10", "6.13", ".5e-3") out of a COPY of the
+-- source before scanning it for identifiers -- otherwise the exponent
+-- marker in a numeral like "1e10" would be misread as a stray identifier
+-- "e10", exactly the ambiguity translate_bare_e above already has to
+-- navigate for the SAME reason. Tried most-specific-first (an exponent
+-- form before the bare form it is a superset of), so a numeral is always
+-- consumed whole, in one pass, never leaving a fragment like a lone "e10"
+-- behind for the plainer pattern to mis-split.
+local function mask_numeric_literals(expr)
+    expr = expr:gsub("%d+%.?%d*[eE][%+%-]?%d+", "")
+    expr = expr:gsub("%.%d+[eE][%+%-]?%d+", "")
+    expr = expr:gsub("%d+%.?%d*", "")
+    expr = expr:gsub("%.%d+", "")
+    return expr
+end
+
+-- Claude: rejects a normalized expression that references any bare
+-- identifier OUTSIDE ALLOWED_IDENTIFIERS -- a typo ("sni(x)"), a
+-- disallowed global ("math.random()", now that "math" itself was
+-- deliberately removed from COMPILE_ENV so it could never be reached
+-- this way), or a Lua keyword smuggled in as if it were part of the
+-- expression ("x and 1" -- "and" is lexically indistinguishable from an
+-- identifier at this level, and simply is not on the whitelist). This
+-- runs BEFORE load() ever sees the source, so a disallowed identifier
+-- stops compilation immediately, with the exact offending name named in
+-- the error, rather than being deferred to a confusing runtime failure
+-- (an undefined global reads as nil, so calling it raises "attempt to
+-- call a nil value") the first time some LATER, unrelated caller happens
+-- to invoke the compiled function.
+local function assert_allowed_identifiers(normalized, original)
+    for name in mask_numeric_literals(normalized):gmatch("%a[%w_]*") do
+        assert(ALLOWED_IDENTIFIERS[name],
+            "Compile_Expression: \"" .. original .. "\" uses \"" .. name ..
+            "\", which is not part of this package's approved expression syntax " ..
+            "(not a recognized function, constant, or the variable x).")
+    end
+end
 
 -- Compile_Expression(expr): turns a string like "sin(x^2) + 3" into a
 -- real Lua function f(x). `**` is accepted as an alternative to Lua's
@@ -558,6 +615,7 @@ local function Compile_Expression(expr)
     normalized = translate_bare_e(normalized)
     normalized = translate_imaginary_unit(normalized)
     normalized = normalized:gsub("%*%*", "^")
+    assert_allowed_identifiers(normalized, expr)
 
     local source = "return function(x) return " .. normalized .. " end"
     local chunk, load_err = load(source, "Compile_Expression", "t", COMPILE_ENV)
