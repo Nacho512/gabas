@@ -61,6 +61,46 @@ local function translate_log_base(expr)
     return (expr:gsub("log_(%d+)%(", "Calc_one_var_log_base(%1,"))
 end
 
+-- e(...) -> Euler's number raised to the argument (e.g. e(x+1) means
+-- e^(x+1)), a prefix substitution exactly like log_N above -- Lua's own
+-- parser finds the matching close-paren for free once this is rewritten
+-- as an ordinary function call.
+local function translate_e_call(expr)
+    return (expr:gsub("%f[%a]e%(", "math.exp("))
+end
+
+-- Claude: bare "e" as a standalone constant (so "e**{x+1}" -- after
+-- bracket/** normalization, "e^(x+1)" -- means e^(x+1), not a syntax
+-- error). This can't be a simple frontier-pattern gsub like the others:
+-- Lua's OWN numeric literals use a trailing "e"/"E" for scientific
+-- notation (5e3, 1.5e-10), and that "e" must never be touched. The one
+-- reliable signal that a lone "e" is genuinely a standalone identifier
+-- (ours) rather than a numeric-literal exponent marker is that a
+-- literal's "e" is always immediately preceded by a digit; ours never
+-- is. Scanned by hand, not gsub, so each candidate "e" can be checked
+-- against its actual neighboring characters, not just a pattern class.
+-- Must run AFTER translate_e_call above, so "e(" cases are already
+-- consumed and never reach this more general rule.
+local function translate_bare_e(expr)
+    local out = {}
+    local n = #expr
+    for i = 1, n do
+        local c = expr:sub(i, i)
+        if c == "e" then
+            local before = i > 1 and expr:sub(i - 1, i - 1) or ""
+            local after = i < n and expr:sub(i + 1, i + 1) or ""
+            if not before:match("%w") and not after:match("%w") then
+                out[#out + 1] = "Calc_one_var_e"
+            else
+                out[#out + 1] = c
+            end
+        else
+            out[#out + 1] = c
+        end
+    end
+    return table.concat(out)
+end
+
 -- Claude: word-boundary substitutions (Lua's %f frontier pattern) so
 -- "sin" only matches as a genuinely standalone identifier -- never as a
 -- substring of "asin" or "sinh". This is what lets every entry below be
@@ -90,6 +130,10 @@ local function Calc_one_var_cosh(x) return (math.exp(x) + math.exp(-x)) / 2 end
 local function Calc_one_var_tanh(x) return Calc_one_var_sinh(x) / Calc_one_var_cosh(x) end
 local function Calc_one_var_log_base(base, x) return math.log(x, base) end
 
+-- Precomputed once, like math.pi, rather than recomputed on every
+-- reference -- Euler's number, for the bare-"e" case (e**{x+1}).
+local Calc_one_var_e = math.exp(1)
+
 -- The environment the compiled expression actually runs in -- deliberately
 -- NOT Lua's real global table (_G). Compiled user expressions only ever
 -- see `math` and the handful of helpers above; they can't read or write
@@ -101,6 +145,7 @@ local COMPILE_ENV = {
     Calc_one_var_sinh = Calc_one_var_sinh,
     Calc_one_var_cosh = Calc_one_var_cosh,
     Calc_one_var_tanh = Calc_one_var_tanh,
+    Calc_one_var_e = Calc_one_var_e,
 }
 
 -- Compile_Expression(expr): turns a string like "sin(x^2) + 3" into a
@@ -109,8 +154,16 @@ local COMPILE_ENV = {
 -- Lua already understands it). Decimal numbers, +, -, *, /, and ordinary
 -- Lua-style function calls all pass through completely unchanged --
 -- nothing here re-implements arithmetic, only the small set of
--- conveniences (bracket styles, function names, log_N, **) that Lua's own
--- syntax doesn't already provide.
+-- conveniences (bracket styles, function names, log_N, **, e) that Lua's
+-- own syntax doesn't already provide.
+--
+-- Euler's number `e` is supported two ways, both meaning e^(...): as a
+-- function call, e(x+1), rewritten to math.exp(x+1); and as a bare
+-- constant combined with **, e**{x+1} (normalized to e^(x+1) by the
+-- bracket and ** steps), rewritten to a plain Calc_one_var_e^(x+1). The
+-- bare-constant form is scanned by hand rather than gsub, specifically to
+-- avoid corrupting Lua's own scientific-notation numeric literals
+-- (5e3, 1.5e-10), which use the same letter for something unrelated.
 --
 -- NOT yet implemented (deliberately, as a separate next step): the
 -- inv(func(...)) wrapper for inverse functions (e.g. inv(tan(x)) as
@@ -124,6 +177,8 @@ local function Compile_Expression(expr)
     local normalized = normalize_brackets(expr)
     normalized = translate_log_base(normalized)
     normalized = translate_function_names(normalized)
+    normalized = translate_e_call(normalized)
+    normalized = translate_bare_e(normalized)
     normalized = normalized:gsub("%*%*", "^")
 
     local source = "return function(x) return " .. normalized .. " end"
