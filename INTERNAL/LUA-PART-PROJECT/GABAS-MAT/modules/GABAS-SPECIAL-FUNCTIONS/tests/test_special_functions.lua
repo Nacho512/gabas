@@ -109,3 +109,57 @@ Testing.Assert_error(function() return SpecialFunctions.Beta(0, 1) end, "Beta: a
 Testing.Assert_error(function() return SpecialFunctions.Beta(1, -1) end, "Beta: b must be positive")
 Testing.Assert_error(function() return SpecialFunctions.Beta("1", 1) end, "Beta: a")
 Testing.Assert_error(function() return SpecialFunctions.Log_beta(0, 1) end, "Log_beta: a must be positive")
+
+-- ===== Gamma_p / Gamma_q =====
+
+Testing.Assert_close(SpecialFunctions.Gamma_p(1, 1), 1 - math.exp(-1), 1e-12, "Gamma_p(1,x) = 1-e^-x (exponential CDF)")
+assert(SpecialFunctions.Gamma_p(2, 0) == 0, "Gamma_p(a,0) == 0")
+assert(SpecialFunctions.Gamma_q(2, 0) == 1, "Gamma_q(a,0) == 1")
+for _, ax in ipairs({{1, 1}, {2, 5}, {0.5, 3}, {10, 8}, {10, 15}}) do
+    local p, q = SpecialFunctions.Gamma_p(ax[1], ax[2]), SpecialFunctions.Gamma_q(ax[1], ax[2])
+    Testing.Assert_close(p + q, 1, 1e-9, "Gamma_p+Gamma_q == 1 at a=" .. ax[1] .. ",x=" .. ax[2])
+end
+
+Testing.Assert_error(function() return SpecialFunctions.Gamma_p(0, 1) end, "Gamma_p: a must be positive")
+Testing.Assert_error(function() return SpecialFunctions.Gamma_p(1, -1) end, "Gamma_p: x must be nonnegative")
+
+-- ===== Erf / Erfc =====
+--
+-- Reference values below are Python's math.erf/math.erfc (independent,
+-- trusted references), not values this implementation itself produced.
+
+local erf_ref = {
+    [0.001] = 0.0011283787909692365, [0.1] = 0.1124629160182849, [0.5] = 0.5204998778130465,
+    [1] = 0.8427007929497149, [1.5] = 0.9661051464753108, [2] = 0.9953222650189527,
+    [2.5] = 0.999593047982555, [3] = 0.9999779095030014, [4] = 0.9999999845827421,
+    [-0.5] = -0.5204998778130465, [-1] = -0.8427007929497149, [-2] = -0.9953222650189527,
+}
+for x, ref in pairs(erf_ref) do
+    Testing.Assert_close(SpecialFunctions.Erf(x), ref, 1e-9, "Erf(" .. x .. ")")
+end
+assert(SpecialFunctions.Erf(0) == 0, "Erf(0) == 0")
+
+local erfc_ref = {
+    [0.001] = 0.9988716212090307, [0.1] = 0.8875370839817152, [0.5] = 0.4795001221869535,
+    [1] = 0.15729920705028513, [2] = 0.004677734981047265, [3] = 2.2090496998585438e-05,
+    [4] = 1.541725790028002e-08, [5] = 1.5374597944280351e-12, [6] = 2.1519736712498916e-17,
+    [-0.5] = 1.5204998778130465, [-1] = 1.842700792949715, [-2] = 1.9953222650189528,
+}
+for x, ref in pairs(erfc_ref) do
+    Testing.Assert_close(SpecialFunctions.Erfc(x), ref, math.max(1e-9, math.abs(ref) * 1e-6), "Erfc(" .. x .. ")")
+end
+
+-- The catastrophic-cancellation case this whole design avoids: for large
+-- x, Erf(x) itself rounds to exactly 1.0, so "1 - Erf(x)" would silently
+-- give exactly 0 -- but the true Erfc(x) keeps shrinking meaningfully
+-- for a long time after. Verified directly against Python out to x=20.
+assert(SpecialFunctions.Erf(10) == 1, "Erf(10) rounds to exactly 1.0 in double precision")
+Testing.Assert_close(SpecialFunctions.Erfc(10), 2.088487583762545e-45, 1e-55,
+    "Erfc(10) stays accurate even though 1-Erf(10) would silently give 0")
+Testing.Assert_close(SpecialFunctions.Erfc(15), 7.212994172451206e-100, 1e-110,
+    "Erfc(15) stays accurate")
+Testing.Assert_close(SpecialFunctions.Erfc(20), 5.3958656116079005e-176, 1e-186,
+    "Erfc(20) stays accurate")
+
+Testing.Assert_error(function() return SpecialFunctions.Erf("1") end, "Erf: x")
+Testing.Assert_error(function() return SpecialFunctions.Erfc("1") end, "Erfc: x")

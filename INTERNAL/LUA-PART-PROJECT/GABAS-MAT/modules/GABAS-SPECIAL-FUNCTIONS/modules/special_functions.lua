@@ -2,9 +2,12 @@
 -- Gamma(x) and Log_gamma(x): the gamma function (generalizes factorial
 -- to real arguments -- Gamma(n+1) = n! for every nonnegative integer n)
 -- and its natural logarithm -- the two foundational special functions
--- almost everything else in this project builds on. Beta(a,b) and
--- Log_beta(a,b) (Gamma(a)*Gamma(b)/Gamma(a+b), for a,b > 0) are the
--- first thing built on top of them, further down this file.
+-- almost everything else in this project builds on. Built on top of
+-- them, further down this file: Beta(a,b) and Log_beta(a,b)
+-- (Gamma(a)*Gamma(b)/Gamma(a+b), for a,b > 0); Gamma_p(a,x) and
+-- Gamma_q(a,x), the regularized lower/upper incomplete gamma functions;
+-- and Erf(x)/Erfc(x), the (complementary) error function, which turns
+-- out to just BE a regularized incomplete gamma function with a=1/2.
 --
 -- Claude: computed via the Lanczos approximation (g=7, n=9), the same
 -- well-known, validated coefficient set used by Numerical Recipes and
@@ -155,9 +158,151 @@ local function Beta(a, b)
     return math.exp(Log_beta(a, b))
 end
 
+-- Claude: the regularized incomplete gamma functions -- P(a,x) below and
+-- Q(a,x) = 1-P(a,x) -- have no single formula that stays numerically
+-- accurate everywhere, so (following the classical Numerical Recipes
+-- algorithm, "gser"/"gcf"/"gammp"/"gammq") this uses TWO different
+-- representations and picks whichever one is actually converging fast
+-- at the given (a,x):
+--
+--   a power series for P(a,x), accurate when x < a+1 (the series' terms
+--   shrink quickly there);
+--
+--   a continued fraction (evaluated via the modified Lentz method, which
+--   avoids ever dividing by an intermediate zero) for Q(a,x), accurate
+--   when x >= a+1 (where the series above would need very many terms
+--   and accumulate rounding error before converging).
+--
+-- Both are scaled by exp(-x + a*log(x) - Log_gamma(a)) rather than
+-- computing x^a, e^(-x), and Gamma(a) as three separate numbers and
+-- combining them after -- the same log-space-first discipline as
+-- Log_gamma/Log_beta above, needed for exactly the same reason (x^a and
+-- e^(-x) individually over/underflow far before their product does, for
+-- large a or x).
+local INCOMPLETE_GAMMA_MAX_ITER = 300
+local INCOMPLETE_GAMMA_EPS = 1e-15
+local INCOMPLETE_GAMMA_TINY = 1e-300
+
+local function gamma_series_p(a, x)
+    if x == 0 then
+        return 0
+    end
+    local ap = a
+    local total = 1 / a
+    local delta = total
+    for _ = 1, INCOMPLETE_GAMMA_MAX_ITER do
+        ap = ap + 1
+        delta = delta * x / ap
+        total = total + delta
+        if math.abs(delta) < math.abs(total) * INCOMPLETE_GAMMA_EPS then
+            break
+        end
+    end
+    return total * math.exp(-x + a * math.log(x) - Log_gamma(a))
+end
+
+local function gamma_cf_q(a, x)
+    local b = x + 1 - a
+    local c = 1 / INCOMPLETE_GAMMA_TINY
+    local d = 1 / b
+    local h = d
+    for i = 1, INCOMPLETE_GAMMA_MAX_ITER do
+        local an = -i * (i - a)
+        b = b + 2
+        d = an * d + b
+        if math.abs(d) < INCOMPLETE_GAMMA_TINY then d = INCOMPLETE_GAMMA_TINY end
+        c = b + an / c
+        if math.abs(c) < INCOMPLETE_GAMMA_TINY then c = INCOMPLETE_GAMMA_TINY end
+        d = 1 / d
+        local delta = d * c
+        h = h * delta
+        if math.abs(delta - 1) < INCOMPLETE_GAMMA_EPS then
+            break
+        end
+    end
+    return math.exp(-x + a * math.log(x) - Log_gamma(a)) * h
+end
+
+-- Gamma_p(a, x) -> P(a,x), the regularized LOWER incomplete gamma
+-- function, for a > 0 and x >= 0
+--
+-- P(a,x) = gamma(a,x)/Gamma(a), where gamma(a,x) = integral from 0 to x
+-- of t^(a-1)*e^(-t) dt -- the fraction of Gamma(a)'s defining integral
+-- accumulated by the time t reaches x. P(a,0) = 0, P(a,infinity) = 1.
+local function Gamma_p(a, x)
+    Core.assert_finite_number(a, "Gamma_p: a")
+    Core.assert_finite_number(x, "Gamma_p: x")
+    assert(a > 0, "Gamma_p: a must be positive.")
+    assert(x >= 0, "Gamma_p: x must be nonnegative.")
+    if x < a + 1 then
+        return gamma_series_p(a, x)
+    end
+    return 1 - gamma_cf_q(a, x)
+end
+
+-- Gamma_q(a, x) -> Q(a,x) = 1 - P(a,x), the regularized UPPER incomplete
+-- gamma function, for a > 0 and x >= 0
+--
+-- Claude: NOT computed as "1 - Gamma_p(a,x)" -- for x large relative to
+-- a, P(a,x) itself rounds to exactly 1.0 in double precision (the true
+-- Q(a,x) is a genuinely tiny but nonzero number), and "1 - 1.0" would
+-- silently give exactly 0 instead. Verified directly: this is exactly
+-- what makes Erfc below need this function rather than "1 - Erf(x)" for
+-- large x (confirmed in testing against Python: at x=10, "1 - erf(x)"
+-- gives exactly 0, while the true erfc(10) is ~2.09e-45).
+local function Gamma_q(a, x)
+    Core.assert_finite_number(a, "Gamma_q: a")
+    Core.assert_finite_number(x, "Gamma_q: x")
+    assert(a > 0, "Gamma_q: a must be positive.")
+    assert(x >= 0, "Gamma_q: x must be nonnegative.")
+    if x < a + 1 then
+        return 1 - gamma_series_p(a, x)
+    end
+    return gamma_cf_q(a, x)
+end
+
+-- Erf(x) -> the error function, erf(x) = (2/sqrt(pi)) * integral from 0
+-- to x of e^(-t^2) dt
+--
+-- Built directly on Gamma_p: erf(x) = sign(x) * Gamma_p(1/2, x^2) -- a
+-- standard identity (the error function IS a regularized incomplete
+-- gamma function in disguise, with a=1/2), reusing the already-verified
+-- series/continued-fraction machinery above rather than a separate
+-- erf-specific approximation.
+local function Erf(x)
+    Core.assert_finite_number(x, "Erf: x")
+    if x == 0 then
+        return 0
+    end
+    local sign = x > 0 and 1 or -1
+    return sign * Gamma_p(0.5, x * x)
+end
+
+-- Erfc(x) -> the complementary error function, 1 - Erf(x)
+--
+-- Claude: NOT computed as "1 - Erf(x)" -- see Gamma_q's own header for
+-- why: Erf(x) rounds to exactly 1.0 once x is only moderately large
+-- (verified: already happens by x=6), which would silently zero out
+-- everything Erfc computes beyond that point, even though the true
+-- value keeps shrinking meaningfully for a long time after (verified
+-- accurate, against Python's math.erfc, all the way out to x=20, where
+-- the true value is ~5.4e-176). Uses Gamma_q(1/2,x^2) directly for
+-- x >= 0, and the identity erfc(x) = 2 - erfc(-x) for x < 0.
+local function Erfc(x)
+    Core.assert_finite_number(x, "Erfc: x")
+    if x >= 0 then
+        return Gamma_q(0.5, x * x)
+    end
+    return 2 - Gamma_q(0.5, x * x)
+end
+
 return {
     Gamma = Gamma,
     Log_gamma = Log_gamma,
     Beta = Beta,
     Log_beta = Log_beta,
+    Gamma_p = Gamma_p,
+    Gamma_q = Gamma_q,
+    Erf = Erf,
+    Erfc = Erfc,
 }
