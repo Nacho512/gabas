@@ -270,7 +270,71 @@ Builds on the general verification principle in Part 1:
    generated artifacts whenever compatibility permits.
 9. Avoid using names for functions, variables, etc. which contain uppercase
    letters as much as possible.
+10. Follow the expl3 syntax-boundary rule below for every expl3
+    implementation section.
 
 (Note: rules 8-9 are the opposite convention from the Lua side, which
 requires `Capitalized_Snake_Case` for every public function -- see Part 2.
 Do not mix the two.)
+
+### expl3 syntax-boundary rule
+
+Every contiguous expl3 implementation section must begin with its own
+explicit `\ExplSyntaxOn` and end with its own explicit `\ExplSyntaxOff`.
+
+A contiguous expl3 implementation section is one uninterrupted region of
+source code that collectively implements a single public command, internal
+subsystem, or closely related family of commands using expl3 syntax.
+
+Such a section may contain:
+
+- expl3 variable declarations;
+- message declarations;
+- key definitions;
+- private validation, parsing, filesystem, logging, calculation, or
+  rendering helpers;
+- hooks required exclusively by that subsystem;
+- the public command definitions that invoke those helpers.
+
+These elements belong in the same section only when they share one clear
+responsibility and are maintained as one logical implementation. For
+example, `\insertnacho`, its keys, messages, variables, validators,
+PDF-routing helpers, logger, renderer, and public-command definition
+constitute one contiguous implementation section.
+
+The section must end before encountering:
+
+- unrelated package functionality;
+- a different public subsystem with independent responsibilities;
+- substantial traditional LaTeX2e code that does not require expl3 syntax;
+- document-facing declarations unrelated to the current subsystem;
+- another implementation that could be removed without affecting the
+  current subsystem.
+
+#### Required structure
+
+```latex
+% Image-management subsystem
+\ExplSyntaxOn
+
+% Variables, messages, keys, helpers, hooks, and public commands
+% belonging exclusively to this subsystem.
+
+\ExplSyntaxOff
+```
+
+#### Additional requirements
+
+1. `\ExplSyntaxOn` must never be left active merely for convenience.
+2. An unrelated subsystem must receive a separate syntax-boundary pair.
+3. Private helpers must remain beside the subsystem they serve whenever
+   practical.
+4. A section must not be split merely because it contains several helper
+   functions.
+5. Two implementations must not be combined merely because both use expl3.
+6. Ordinary LaTeX code may occur inside the section when it is an integral
+   part of that expl3 subsystem.
+7. The delimiters provide syntax-state boundaries, not TeX grouping,
+   variable locality, namespaces, or runtime isolation.
+8. If responsibility is ambiguous, use the smaller coherent section and
+   close `\ExplSyntaxOff` earlier.

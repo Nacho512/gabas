@@ -52,6 +52,45 @@ end
 Testing.Assert_error(function() return SpecialFunctions.Log_gamma(-2) end,
     "Log_gamma: x must not be a nonpositive integer")
 
+-- ===== Digamma =====
+--
+-- Reference values below are mpmath's digamma() at 30-digit working
+-- precision (an independent, trusted reference), not values this
+-- implementation itself produced.
+
+local digamma_ref = {
+    {0.1, -10.423754940411076}, {0.5, -1.9635100260214235}, {1, -0.57721566490153286},
+    {1.5, 0.036489973978576521}, {2, 0.42278433509846714}, {3, 0.92278433509846714},
+    {5, 1.5061176684318005}, {6, 1.7061176684318005}, {10, 2.2517525890667211},
+    {50, 3.9019896734278922}, {100, 4.6001618527380874}, {1000, 6.9072551956488121},
+    {0.01, -100.56088545786867}, {-0.5, 0.036489973978576521}, {-1.5, 0.70315664064524319},
+    {-2.5, 1.1031566406452432}, {-10.5, 2.3982391295357816}, {-0.1, 9.2450730500529480},
+    {-100.3, 6.8956431248604350}, {1e-06, -1000000.5772140200}, {700, 6.5503658792611265},
+}
+for _, case in ipairs(digamma_ref) do
+    local x, ref = case[1], case[2]
+    local tol = math.max(math.abs(ref) * 1e-9, 1e-9)
+    Testing.Assert_close(SpecialFunctions.Digamma(x), ref, tol, "Digamma(" .. x .. ")")
+end
+
+-- Digamma(1) == -EULER_GAMMA is the classic closed form -- checked
+-- against the literal constant, not just mpmath, as an independent
+-- sanity check.
+Testing.Assert_close(SpecialFunctions.Digamma(1), -0.5772156649015328606, 1e-9, "Digamma(1) = -EULER_GAMMA")
+
+-- Recurrence identity: Digamma(x+1) - Digamma(x) == 1/x, for a spread
+-- of x including non-integers and negative non-integers.
+for _, x in ipairs({0.3, 1.7, 3.5, -0.3, -2.7}) do
+    Testing.Assert_close(SpecialFunctions.Digamma(x + 1) - SpecialFunctions.Digamma(x), 1 / x, 1e-9,
+        "Digamma(x+1) - Digamma(x) == 1/x at x=" .. x)
+end
+
+-- Poles at every nonpositive integer.
+Testing.Assert_error(function() return SpecialFunctions.Digamma(0) end, "Digamma: x must not be a nonpositive integer")
+Testing.Assert_error(function() return SpecialFunctions.Digamma(-1) end, "Digamma: x must not be a nonpositive integer")
+Testing.Assert_error(function() return SpecialFunctions.Digamma(-7) end, "Digamma: x must not be a nonpositive integer")
+Testing.Assert_error(function() return SpecialFunctions.Digamma("2") end, "Digamma: x")
+
 -- ===== The overflow boundary: Gamma legitimately overflows to math.huge
 -- once the true value exceeds a double's range (~Gamma(172) and up),
 -- while Log_gamma -- staying in log-space the whole time -- does not. =====
