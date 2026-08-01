@@ -5,6 +5,8 @@ package.path = modules_root .. "/?.lua;" .. modules_root .. "/?/init.lua;" .. pa
 
 local tests = {
     "test_calc_one_var",
+    "test_quadrature",
+    "test_integral",
 }
 
 for _, name in ipairs(tests) do
