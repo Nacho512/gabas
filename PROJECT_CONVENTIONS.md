@@ -75,7 +75,7 @@ These apply everywhere in the project, on both the Lua and LaTeX sides.
 
 ### Naming convention ("Nacho_case")
 
-Every public function is `Capitalized_Snake_Case`: an initial capital, then
+Every public function is `Nacho_case_innstance`: an initial capital, then
 lowercase words joined by underscores at natural word boundaries.
 
 Examples: `Derivative_at_point`, `Bisection`, `Compile_expression`,
