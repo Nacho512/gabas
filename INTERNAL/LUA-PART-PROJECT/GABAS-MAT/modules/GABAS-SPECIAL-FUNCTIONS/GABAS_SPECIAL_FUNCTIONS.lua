@@ -5,7 +5,7 @@
 -- code is unaffected by how the implementation is split across files.
 --
 --   special_functions -- modules/special_functions.lua -- Gamma, Log_gamma, Digamma, Beta, Log_beta, Beta_i, Gamma_p, Gamma_q, Erf, Erfc, Bessel_j, Bessel_y, Modified_bessel_i, Modified_bessel_k, Spherical_bessel_j, Spherical_bessel_y
---   orthogonal_polynomials -- modules/orthogonal_polynomials.lua -- Chebyshev_t, Chebyshev_u
+--   orthogonal_polynomials -- modules/orthogonal_polynomials.lua -- Chebyshev_t, Chebyshev_u, Legendre_p
 --
 -- Claude: "core" is deliberately NOT in this list -- core.lua holds
 -- internal validation plumbing that special_functions.lua depends on
