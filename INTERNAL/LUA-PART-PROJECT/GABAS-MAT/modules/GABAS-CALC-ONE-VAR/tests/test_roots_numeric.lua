@@ -4,6 +4,7 @@ local Testing = require("GABAS-LINAL.modules.testing")
 local Bisection = CalcOneVar.Bisection
 local Newton = CalcOneVar.Newton
 local Secant = CalcOneVar.Secant
+local Brent = CalcOneVar.Brent
 
 -- Reference roots below are independent high-precision values (mpmath,
 -- 30 digits), not values these implementations themselves produced.
@@ -11,6 +12,8 @@ local SQRT2 = 1.41421356237309504880168872421
 local CUBIC_ROOT = 1.52137970680456756960408083225 -- root of x^3 - x - 2
 local DOTTIE = 0.739085133215160641655312087674 -- root of cos(x) - x
 local LN3 = 1.09861228866810969139524523692
+local CUBIC_ROOT_2 = 2.09455148154232659148238654058 -- root of x^3 - 2x - 5 on [2,3]
+local CUBIC_ROOT_3 = 1.32471795724474602596090885448 -- root of x^3 - x - 1 on [1,2]
 
 -- ===== Bisection =====
 
@@ -120,3 +123,65 @@ Testing.Assert_close(c4, SQRT2, 1e-10, "Secant with a string")
 Testing.Assert_error(function() return Secant(42, 1, 2) end, "Secant: f")
 Testing.Assert_error(function() return Secant(function(x) return x end, 1, 1) end,
     "Secant: x0 and x1 must be distinct")
+
+-- ===== Brent =====
+
+local b1, be1, bs1, bd1 = Brent(function(x) return x * x - 2 end, 1, 2)
+Testing.Assert_close(b1, SQRT2, 1e-10, "Brent: x^2-2 on [1,2]")
+assert(bs1 == "SUCCESS")
+assert(bd1.iterations <= 15, "Brent should converge much faster than plain bisection")
+
+local b2, be2, bs2 = Brent(function(x) return x ^ 3 - 2 * x - 5 end, 2, 3)
+Testing.Assert_close(b2, CUBIC_ROOT_2, 1e-10, "Brent: x^3-2x-5 on [2,3] (Brent's own classic example)")
+assert(bs2 == "SUCCESS")
+
+local b3, be3, bs3 = Brent(function(x) return x ^ 3 - x - 1 end, 1, 2)
+Testing.Assert_close(b3, CUBIC_ROOT_3, 1e-10, "Brent: x^3-x-1 on [1,2]")
+assert(bs3 == "SUCCESS")
+
+local b4, be4, bs4 = Brent(function(x) return math.cos(x) - x end, 0, 1)
+Testing.Assert_close(b4, DOTTIE, 1e-10, "Brent: cos(x)-x on [0,1]")
+assert(bs4 == "SUCCESS")
+
+-- A cubic with THREE real roots on a wider interval, bracketed so only
+-- ONE of them (x=1) has a sign change on [0, 1.5].
+local b5, be5, bs5 = Brent(function(x) return (x - 1) * (x - 2) * (x - 3) end, 0, 1.5)
+Testing.Assert_close(b5, 1, 1e-9, "Brent: (x-1)(x-2)(x-3) on [0,1.5], only x=1 bracketed")
+assert(bs5 == "SUCCESS")
+
+-- A perfectly linear f -- interpolation should nail the root almost
+-- immediately, not need many bisection-style halvings.
+local b6, be6, bs6, bd6 = Brent(function(x) return x - 3 end, 0, 10)
+Testing.Assert_close(b6, 3, 1e-10, "Brent: linear f, root at x=3")
+assert(bs6 == "SUCCESS")
+assert(bd6.iterations <= 5, "Brent should be near-immediate on a linear function")
+
+-- Root exactly at an endpoint -- detected immediately, 0 iterations.
+local b7, be7, bs7, bd7 = Brent(function(x) return x - 1 end, -1, 1)
+Testing.Assert_close(b7, 1, 1e-15, "Brent: exact root at endpoint b")
+assert(bs7 == "SUCCESS")
+assert(bd7.iterations == 0)
+
+-- Cross-check against Bisection (independent method, same bracket) --
+-- differential testing, not just internal self-consistency.
+for _, case in ipairs({
+    {f = function(x) return x * x * x - x - 2 end, a = 1, b = 2},
+    {f = function(x) return math.exp(x) - 3 end, a = 0, b = 2},
+    {f = function(x) return math.sin(x) - 0.5 end, a = 0, b = 1},
+}) do
+    local brent_root = Brent(case.f, case.a, case.b)
+    local bisection_root = Bisection(case.f, case.a, case.b)
+    Testing.Assert_close(brent_root, bisection_root, 1e-8,
+        "Brent and Bisection agree on the same bracket")
+end
+
+-- Accepts a symbolic-expression string.
+local b8 = Brent("x**2 - 2", 1, 2)
+Testing.Assert_close(b8, SQRT2, 1e-10, "Brent with a string")
+
+-- Input validation.
+Testing.Assert_error(function() return Brent(42, 1, 2) end, "Brent: f")
+Testing.Assert_error(function() return Brent(function(x) return x end, 1, 1) end,
+    "Brent: a and b must be distinct")
+Testing.Assert_error(function() return Brent(function(x) return x * x + 1 end, -1, 1) end,
+    "Brent: f(a) and f(b) must have opposite signs")
