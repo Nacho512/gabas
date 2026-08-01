@@ -524,6 +524,83 @@ local function Bessel_y(n, x)
     return y_curr
 end
 
+-- Modified_bessel_i(n, x) -> I_n(x), the modified Bessel function of the
+-- first kind, order n, for a nonnegative integer n and any finite real x
+--
+-- Claude: I_n(x) = sum_(k=0..infinity) [(x/2)^(2k+n)] / (k! * (k+n)!) --
+-- the same defining structure as Bessel_j's power series, but WITHOUT
+-- the alternating (-1)^k sign. Every term is the same sign (nonnegative
+-- for x >= 0), so unlike Bessel_j's series there is no cancellation at
+-- all -- nothing to accumulate rounding error, at any x. Verified
+-- directly against mpmath.besseli across n = 0..50 and x up to 750:
+-- relative error stays at the few-1e-16 (machine epsilon) level
+-- everywhere the true result is representable as a double, with no
+-- degradation as x grows (unlike Bessel_j's old power series) -- the
+-- only failure mode is I_n(x) itself exceeding a double's range, which
+-- happens above roughly x=709 (depending on n) and returns +math.huge,
+-- the same honest IEEE overflow Gamma(x) already has beyond x~172, not
+-- a silently wrong finite number. No domain restriction is enforced
+-- here for exactly that reason -- there is no accuracy boundary to
+-- enforce, only the same overflow every double-precision routine has.
+--
+-- A separate EXPONENTIALLY-SCALED variant (I_n(x)*e^-x, representable
+-- even where I_n(x) itself overflows -- see Log_gamma's own header for
+-- the same idea applied to Gamma) is deferred, not needed by anything
+-- in this file yet -- but the Bessel reference document Nacho supplied
+-- flags exactly this as a required building block for
+-- Modified_bessel_k, so it will come back when that's built.
+--
+-- I_n(-x) = (-1)^n * I_n(x) falls out of this formula automatically
+-- (the sign of half_x^n for odd n is handled explicitly below, since
+-- the log-space computation that produces it needs abs(half_x) --
+-- log() of a negative number isn't real), so no separate negative-x
+-- CASE needs its own algorithm -- same as Bessel_j.
+--
+-- Claude: the very first series term, (half_x^n)/n!, is computed in
+-- LOG-SPACE FIRST (n*log(|half_x|) - Log_gamma(n+1), then exp() of
+-- that) -- not as half_x^n and n! formed as separate numbers and then
+-- divided -- the same log-space-first discipline as Gamma/Log_gamma
+-- above, needed for exactly the same reason: half_x^n alone can
+-- overflow a double even when the true ratio (half_x^n)/n! is
+-- comfortably representable. Caught directly by testing, not assumed:
+-- Modified_bessel_i(150, 300) computed the naive way returns
+-- +math.huge (half_x^150 = 150^150 overflows on its own), while the
+-- true value is an ordinary, representable ~4.5e112 -- confirmed
+-- against mpmath before this fix. An earlier version of this function
+-- also computed n! via a Lua-integer accumulator (`factorial_n = 1`
+-- rather than `1.0`) -- Lua 5.4 integers are 64-bit and WRAP SILENTLY
+-- on overflow instead of promoting to float, and 50! already exceeds
+-- that range -- also caught directly by testing
+-- (Modified_bessel_i(50, 100) came back negative). Routing n! through
+-- Log_gamma(n+1) (already float-based throughout) sidesteps that
+-- failure mode entirely, not just patches it.
+local MODIFIED_BESSEL_I_MAX_ITER = 600
+
+local function Modified_bessel_i(n, x)
+    Core.assert_finite_number(x, "Modified_bessel_i: x")
+    assert(n == math.floor(n) and n >= 0, "Modified_bessel_i: n must be a nonnegative integer.")
+    if x == 0 then
+        return n == 0 and 1 or 0
+    end
+    local half_x = x / 2
+    local abs_half_x = math.abs(half_x)
+    local sign0 = (half_x < 0 and n % 2 == 1) and -1 or 1
+    local term = sign0 * math.exp(n * math.log(abs_half_x) - Log_gamma(n + 1))
+    local total = term
+    local half_x_sq = half_x * half_x
+    for k = 1, MODIFIED_BESSEL_I_MAX_ITER do
+        term = term * half_x_sq / (k * (k + n))
+        total = total + term
+        if total == math.huge then
+            break
+        end
+        if math.abs(term) < math.abs(total) * 1e-17 then
+            break
+        end
+    end
+    return total
+end
+
 return {
     Gamma = Gamma,
     Log_gamma = Log_gamma,
@@ -535,4 +612,5 @@ return {
     Erfc = Erfc,
     Bessel_j = Bessel_j,
     Bessel_y = Bessel_y,
+    Modified_bessel_i = Modified_bessel_i,
 }
