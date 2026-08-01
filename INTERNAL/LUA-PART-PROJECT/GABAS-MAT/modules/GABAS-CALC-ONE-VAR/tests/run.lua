@@ -8,6 +8,9 @@ local tests = {
     "test_quadrature",
     "test_integral",
     "test_inverse_trig",
+    "test_integral_infinite",
+    "test_integral_principal_value",
+    "test_integral_tanh_sinh",
 }
 
 for _, name in ipairs(tests) do
