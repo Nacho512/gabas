@@ -121,6 +121,6 @@ end
 
 return {
     Complex = Complex,
-    Is_Complex = is_complex,
+    Is_complex = is_complex,
     Conjugate = Conjugate,
 }

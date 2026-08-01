@@ -116,7 +116,7 @@ local function Eigenvalues(matriz, max_iter, tol)
 
     for _ = 1, max_iter do
         local Q, R = qr_decompose(A)
-        A = Matrix.Mat_Mul(R, Q)
+        A = Matrix.Mat_mul(R, Q)
 
         local off_diag = 0
         for i = 2, n do
@@ -178,8 +178,8 @@ local function Eigenvectors(matriz, max_iter, tol)
 
     for _ = 1, max_iter do
         local Q, R = qr_decompose(A)
-        A = Matrix.Mat_Mul(R, Q)
-        Q_total = Matrix.Mat_Mul(Q_total, Q)
+        A = Matrix.Mat_mul(R, Q)
+        Q_total = Matrix.Mat_mul(Q_total, Q)
 
         local off_diag = 0
         for i = 2, n do
@@ -230,13 +230,13 @@ local function GRAM_SCH(vectores, tol)
             v[d] = vectores[i][d]
         end
         for _, q in ipairs(basis) do
-            local coeff = Vector.V_Dot(Complex.Conjugate(q), v)
+            local coeff = Vector.V_dot(Complex.Conjugate(q), v)
             for d = 1, dim do
                 v[d] = v[d] - coeff * q[d]
             end
         end
-        if Vector.V_Norm(v) > tol then
-            basis[#basis + 1] = Vector.V_Normalize(v)
+        if Vector.V_norm(v) > tol then
+            basis[#basis + 1] = Vector.V_normalize(v)
         end
     end
 
@@ -254,7 +254,7 @@ end
 return {
     Eigenvalues = Eigenvalues,
     Eigenvectors = Eigenvectors,
-    -- Claude: "Gram_Schmidt" (spelled out), not "GRAM_SCH"/"Gram_Sch" --
-    -- the public-naming pass standardizing on PascalCase_With_Underscores.
-    Gram_Schmidt = GRAM_SCH,
+    -- Claude: "Gram_schmidt" (spelled out), not "GRAM_SCH"/"Gram_Sch" --
+    -- the public-naming convention capitalizes only the first word.
+    Gram_schmidt = GRAM_SCH,
 }

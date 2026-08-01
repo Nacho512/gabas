@@ -18,7 +18,7 @@ local EPSILON = DEFAULT_ABS_TOL
 -- everywhere a pivoting/convergence/near-zero check needs "how big is
 -- this", regardless of whether the entries are real or complex.
 local function cabs(x)
-    if Complex.Is_Complex(x) then
+    if Complex.Is_complex(x) then
         return x:abs()
     end
     return math.abs(x)
@@ -77,7 +77,7 @@ end
 -- entry", regardless of whether the surrounding matrix/vector is real or
 -- complex. Every entry-validation loop in this module needs exactly this.
 local function is_finite_scalar(x)
-    if Complex.Is_Complex(x) then
+    if Complex.Is_complex(x) then
         return is_finite_number(x.re) and is_finite_number(x.im)
     end
     return is_finite_number(x)
@@ -216,7 +216,7 @@ local function assert_vector(v, label, opts)
     for i = 1, #v do
         assert_finite_scalar(v[i], label .. "[" .. i .. "]")
         if opts.real then
-            assert(not Complex.Is_Complex(v[i]), label .. "[" .. i .. "] must be a finite real number.")
+            assert(not Complex.Is_complex(v[i]), label .. "[" .. i .. "] must be a finite real number.")
         end
     end
     return #v
@@ -235,7 +235,7 @@ local function assert_matrix(matrix, label, opts)
         for j = 1, cols do
             assert_finite_scalar(matrix[i][j], label .. "[" .. i .. "][" .. j .. "]")
             if opts.real then
-                assert(not Complex.Is_Complex(matrix[i][j]),
+                assert(not Complex.Is_complex(matrix[i][j]),
                     label .. "[" .. i .. "][" .. j .. "] must be a finite real number.")
             end
         end

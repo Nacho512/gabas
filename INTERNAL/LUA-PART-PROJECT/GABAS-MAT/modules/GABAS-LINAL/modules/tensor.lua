@@ -51,7 +51,7 @@ end
 -- Only ever walks down through t[1], t[1][1], ...: like the rest of the
 -- module, a ragged (non-rectangular) tensor is assumed not to occur.
 local function tensor_depth(t)
-    if type(t) ~= "table" or Complex.Is_Complex(t) then
+    if type(t) ~= "table" or Complex.Is_complex(t) then
         return 0
     end
     return 1 + tensor_depth(t[1])
@@ -227,8 +227,8 @@ end
 
 return {
     Tensor = Tensor,
-    Zeroes_Tensor = Zeroes_tensor,
-    Eye_Tensor = Eye_tensor,
-    Random_Tensor = Random_tensor,
-    Show_Tensor = Show_tensor,
+    Zeroes_tensor = Zeroes_tensor,
+    Eye_tensor = Eye_tensor,
+    Random_tensor = Random_tensor,
+    Show_tensor = Show_tensor,
 }
