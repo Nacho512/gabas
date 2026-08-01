@@ -163,3 +163,42 @@ Testing.Assert_close(SpecialFunctions.Erfc(20), 5.3958656116079005e-176, 1e-186,
 
 Testing.Assert_error(function() return SpecialFunctions.Erf("1") end, "Erf: x")
 Testing.Assert_error(function() return SpecialFunctions.Erfc("1") end, "Erfc: x")
+
+-- ===== Bessel_j =====
+--
+-- Reference values below are mpmath's besselj() at 30-digit working
+-- precision (an independent, trusted reference), not values this
+-- implementation itself produced.
+
+local bessel_j_ref = {
+    {0, 0.5, 0.9384698072408129}, {0, 1, 0.76519768655796655}, {0, 5, -0.1775967713143383},
+    {0, 10, -0.24593576445134834}, {0, 15, -0.014224472826780773},
+    {1, 0.5, 0.24226845767487389}, {1, 1, 0.44005058574493352}, {1, 5, -0.32757913759146522},
+    {1, 10, 0.043472746168861437}, {1, 15, 0.20510403861352276},
+    {2, 3, 0.48609126058589108}, {2, 11, 0.13904751877870127},
+    {3, 7, -0.16755558799533424}, {5, 13, 0.13161955992748079},
+}
+for _, case in ipairs(bessel_j_ref) do
+    local n, x, ref = case[1], case[2], case[3]
+    Testing.Assert_close(SpecialFunctions.Bessel_j(n, x), ref, 1e-9, "Bessel_j(" .. n .. "," .. x .. ")")
+end
+
+-- J_n(0): 1 for n=0, 0 for n>0.
+assert(SpecialFunctions.Bessel_j(0, 0) == 1, "Bessel_j(0,0) == 1")
+assert(SpecialFunctions.Bessel_j(3, 0) == 0, "Bessel_j(n>0,0) == 0")
+
+-- J_n(-x) = (-1)^n * J_n(x).
+for _, n in ipairs({0, 1, 2, 3}) do
+    local x = 7.3
+    local expected = ((n % 2 == 0) and 1 or -1) * SpecialFunctions.Bessel_j(n, x)
+    Testing.Assert_close(SpecialFunctions.Bessel_j(n, -x), expected, 1e-9,
+        "Bessel_j(" .. n .. ",-x) = (-1)^" .. n .. "*Bessel_j(" .. n .. ",x)")
+end
+
+-- Input validation: the verified domain (|x| <= 15) is enforced
+-- explicitly, not silently extrapolated past where it's been checked.
+Testing.Assert_error(function() return SpecialFunctions.Bessel_j(0, 16) end, "Bessel_j: |x| must be <= 15")
+Testing.Assert_error(function() return SpecialFunctions.Bessel_j(0, -20) end, "Bessel_j: |x| must be <= 15")
+Testing.Assert_error(function() return SpecialFunctions.Bessel_j(-1, 1) end, "Bessel_j: n must be a nonnegative integer")
+Testing.Assert_error(function() return SpecialFunctions.Bessel_j(1.5, 1) end, "Bessel_j: n must be a nonnegative integer")
+Testing.Assert_error(function() return SpecialFunctions.Bessel_j(0, "1") end, "Bessel_j: x")
