@@ -2,8 +2,9 @@
 -- Gamma(x) and Log_gamma(x): the gamma function (generalizes factorial
 -- to real arguments -- Gamma(n+1) = n! for every nonnegative integer n)
 -- and its natural logarithm -- the two foundational special functions
--- almost everything else eventually planned for this project (Beta, the
--- incomplete gamma/beta functions, ...) will be defined in terms of.
+-- almost everything else in this project builds on. Beta(a,b) and
+-- Log_beta(a,b) (Gamma(a)*Gamma(b)/Gamma(a+b), for a,b > 0) are the
+-- first thing built on top of them, further down this file.
 --
 -- Claude: computed via the Lanczos approximation (g=7, n=9), the same
 -- well-known, validated coefficient set used by Numerical Recipes and
@@ -111,7 +112,52 @@ local function Gamma(x)
     return sign * math.exp(Log_gamma(x))
 end
 
+-- Log_beta(a, b) -> log(Beta(a,b))
+--
+-- Beta(a,b) = Gamma(a)*Gamma(b)/Gamma(a+b), for a > 0 and b > 0 -- on
+-- this domain Beta is always strictly positive, so (unlike Log_gamma)
+-- no absolute-value/sign subtlety is needed here.
+--
+-- Claude: computed as Log_gamma(a) + Log_gamma(b) - Log_gamma(a+b) --
+-- entirely in log-space, never forming Gamma(a), Gamma(b), or
+-- Gamma(a+b) as actual numbers. This is not just tidiness: Beta(100,100)
+-- is an ordinary, well-behaved positive number (~2.2e-61), but
+-- Gamma(100+100) = Gamma(200) already overflows a double on its own
+-- (Gamma(172) is the overflow threshold) -- computing the naive
+-- Gamma(a)*Gamma(b)/Gamma(a+b) formula directly produces
+-- finite*finite/inf = 0, silently wrong by 61 orders of magnitude, not
+-- an honest failure. Verified directly: the naive formula really does
+-- overflow at a=b=100 (confirmed against Python before writing this),
+-- while this log-space formula stays accurate.
+local function Log_beta(a, b)
+    Core.assert_finite_number(a, "Log_beta: a")
+    Core.assert_finite_number(b, "Log_beta: b")
+    assert(a > 0, "Log_beta: a must be positive.")
+    assert(b > 0, "Log_beta: b must be positive.")
+    return Log_gamma(a) + Log_gamma(b) - Log_gamma(a + b)
+end
+
+-- Beta(a, b) -> Gamma(a)*Gamma(b)/Gamma(a+b), for a > 0 and b > 0
+--
+-- The classical Euler integral of the first kind,
+-- Beta(a,b) = integral from 0 to 1 of t^(a-1)*(1-t)^(b-1) dt -- verified
+-- directly against that defining integral (independent numerical
+-- quadrature), not just against its own Gamma-ratio formula.
+--
+-- Built on Log_beta (exp(Log_beta(a,b))) rather than computed via
+-- Gamma(a)*Gamma(b)/Gamma(a+b) directly -- see Log_beta's own header for
+-- exactly why that distinction matters here, not just for large a,b.
+local function Beta(a, b)
+    Core.assert_finite_number(a, "Beta: a")
+    Core.assert_finite_number(b, "Beta: b")
+    assert(a > 0, "Beta: a must be positive.")
+    assert(b > 0, "Beta: b must be positive.")
+    return math.exp(Log_beta(a, b))
+end
+
 return {
     Gamma = Gamma,
     Log_gamma = Log_gamma,
+    Beta = Beta,
+    Log_beta = Log_beta,
 }
