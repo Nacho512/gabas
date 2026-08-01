@@ -228,3 +228,35 @@ end
 Testing.Assert_error(function() return SpecialFunctions.Bessel_j(-1, 1) end, "Bessel_j: n must be a nonnegative integer")
 Testing.Assert_error(function() return SpecialFunctions.Bessel_j(1.5, 1) end, "Bessel_j: n must be a nonnegative integer")
 Testing.Assert_error(function() return SpecialFunctions.Bessel_j(0, "1") end, "Bessel_j: x")
+
+-- ===== Bessel_y =====
+--
+-- Reference values below are mpmath's bessely() at 30-digit working
+-- precision (an independent, trusted reference), not values this
+-- implementation itself produced.
+
+local bessel_y_ref = {
+    {0, 0.1, -1.5342386513503668}, {0, 0.5, -0.44451873350670656}, {0, 1, 0.088256964215676958},
+    {0, 5, -0.30851762524903378}, {0, 10, 0.055671167283599391}, {0, 12, -0.22523731263436143},
+    {1, 0.1, -6.4589510947020266}, {1, 0.5, -1.4714723926702431}, {1, 1, -0.78121282130028872},
+    {1, 5, 0.14786314339122684}, {1, 10, 0.24901542420695388}, {1, 12, -0.057099218260896521},
+    {2, 1, -1.6506826068162544}, {2, 5, 0.36766288260552452}, {2, 10, -0.0058680824422086146},
+    {3, 5, 0.14626716269319277}, {5, 8, 0.25640106499011348}, {10, 10, -0.35981415218340272},
+    {20, 12, -79.349697401970764},
+}
+for _, case in ipairs(bessel_y_ref) do
+    local n, x, ref = case[1], case[2], case[3]
+    Testing.Assert_close(SpecialFunctions.Bessel_y(n, x), ref, math.abs(ref) * 1e-9, "Bessel_y(" .. n .. "," .. x .. ")")
+end
+
+-- Input validation: x=0 (logarithmic singularity) and x<0 (not
+-- real-valued for Y_n) are both rejected explicitly, as is the verified
+-- x <= 12 domain boundary -- the same "enforce the checked domain, don't
+-- silently extrapolate" discipline Bessel_j used before Miller's
+-- algorithm removed the need for it there.
+Testing.Assert_error(function() return SpecialFunctions.Bessel_y(0, 0) end, "Bessel_y: x must be positive")
+Testing.Assert_error(function() return SpecialFunctions.Bessel_y(0, -1) end, "Bessel_y: x must be positive")
+Testing.Assert_error(function() return SpecialFunctions.Bessel_y(0, 13) end, "Bessel_y: x must be <= 12")
+Testing.Assert_error(function() return SpecialFunctions.Bessel_y(-1, 1) end, "Bessel_y: n must be a nonnegative integer")
+Testing.Assert_error(function() return SpecialFunctions.Bessel_y(1.5, 1) end, "Bessel_y: n must be a nonnegative integer")
+Testing.Assert_error(function() return SpecialFunctions.Bessel_y(0, "1") end, "Bessel_y: x")
