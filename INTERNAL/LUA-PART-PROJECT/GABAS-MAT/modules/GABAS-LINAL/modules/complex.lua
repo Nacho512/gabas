@@ -74,16 +74,18 @@ function Complex_mt.__unm(a)
     return Complex(-a.re, -a.im)
 end
 
--- Claude: only a real exponent is supported (Complex-exponent power, e.g.
--- j^j, is a much rarer generalization and not needed by anything in this
--- library yet). Integer exponents go through exact repeated squaring
--- rather than De Moivre's formula, so e.g. j^2 comes out to exactly -1
--- instead of picking up cos/sin round-off; non-integer real exponents fall
--- back to De Moivre (r^b at angle b*theta), the only way to define them.
+-- Claude: a real integer exponent goes through exact repeated squaring
+-- (so e.g. j^2 comes out to exactly -1, not cos/sin round-off) -- every
+-- other case (a non-integer real exponent, or a genuinely Complex one,
+-- e.g. e^j or j^j) falls through to the general definition of complex
+-- exponentiation, z^w = exp(w * Log(z)), using the principal complex
+-- logarithm Log(z) = ln|z| + i*arg(z). This is the only way a Complex
+-- exponent is defined at all, and it also subsumes the old real,
+-- non-integer case (De Moivre's formula is exactly what this reduces to
+-- when w is real), so there is no longer a separate branch for it.
 function Complex_mt.__pow(a, b)
     a = to_complex(a)
-    assert(type(b) == "number", "Complex: exponent must be a real number (Complex-exponent power is not supported).")
-    if b == math.floor(b) then
+    if type(b) == "number" and b == math.floor(b) then
         local n = math.abs(b)
         local result = Complex(1, 0)
         local base = a
@@ -97,11 +99,15 @@ function Complex_mt.__pow(a, b)
         end
         return result
     end
+    b = to_complex(b)
     local r = a:abs()
+    assert(r > 0, "Complex: 0 cannot be raised to a non-positive-integer power.")
+    local ln_r = math.log(r)
     local theta = a:arg()
-    local new_r = r ^ b
-    local new_theta = theta * b
-    return Complex(new_r * math.cos(new_theta), new_r * math.sin(new_theta))
+    local re_exp = b.re * ln_r - b.im * theta
+    local im_exp = b.re * theta + b.im * ln_r
+    local mag = math.exp(re_exp)
+    return Complex(mag * math.cos(im_exp), mag * math.sin(im_exp))
 end
 
 function Complex_mt.__eq(a, b)
